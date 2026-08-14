@@ -8,7 +8,9 @@ build/
 .env
 .env.local
 .env*.local
-data/
+# Leading slash matters: a bare `data/` also swallows src/data/, which holds
+# the game content the app cannot build without.
+/data/
 *.db
 *.db-shm
 *.db-wal

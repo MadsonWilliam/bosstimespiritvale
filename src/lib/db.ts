@@ -365,8 +365,17 @@ export function hasPin(mapSlug: string, channel: number): boolean {
 
 /* ------------------------------------------------------------------ stats */
 
-export function stats() {
-  const d = db().prepare("SELECT COUNT(*) AS n FROM deaths").get() as { n: number };
-  const s = db().prepare("SELECT COUNT(*) AS n FROM sightings").get() as { n: number };
+/**
+ * Counters for the header. Deaths and sightings are per-server — the whole
+ * point of the server switch is that SA and NA share nothing — while the
+ * contributor count is global, since reputation is not per-server.
+ */
+export function stats(server: string) {
+  const d = db()
+    .prepare("SELECT COUNT(*) AS n FROM deaths WHERE server = ?")
+    .get(server) as { n: number };
+  const s = db()
+    .prepare("SELECT COUNT(*) AS n FROM sightings WHERE server = ?")
+    .get(server) as { n: number };
   return { deaths: d.n, sightings: s.n, users: userCount() };
 }

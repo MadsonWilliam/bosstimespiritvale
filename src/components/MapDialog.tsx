@@ -6,7 +6,7 @@ import { useApp } from "@/components/Providers";
 import { CHANNELS, ELEMENTS, minimapUrl, type BossMap, type Channel } from "@/data/game";
 import type { ChannelTimer } from "@/lib/timers";
 import { formatClock, parseTimeInput } from "@/lib/time-input";
-import { ChanceBar, Countdown, StateBadge } from "@/components/ui";
+import { Countdown, StateBadge, TimerProgress, TombIcon } from "@/components/ui";
 import type { StatePayload } from "@/app/api/state/route";
 
 type Pin = StatePayload["pins"][number];
@@ -53,7 +53,6 @@ export function MapDialog({
 
   const credentials = identity ? { nick: identity.nick, pin: identity.pin } : {};
 
-  /** Applies the points the API awarded so the header updates immediately. */
   function applyAward(awarded: number) {
     if (identity && awarded > 0) {
       setIdentity({ ...identity, points: identity.points + awarded, reports: identity.reports + 1 });
@@ -91,13 +90,14 @@ export function MapDialog({
     }
   }
 
-  async function reportDeath(at: number, source: "kill" | "summon") {
-    if (await post("/api/report", { kind: "death", server: prefs.server, mapSlug: map.slug, channel, at, source })) {
+  async function reportDeath(at: number) {
+    if (await post("/api/report", { kind: "death", server: prefs.server, mapSlug: map.slug, channel, at })) {
       notify(t("report.saved"));
     }
   }
 
-  async function reportSighting(tombPresent: boolean) {
+  /** `diedAt` comes from the clock printed on the tombstone, when readable. */
+  async function reportSighting(tombPresent: boolean, diedAt?: number | null) {
     if (
       await post("/api/report", {
         kind: "sighting",
@@ -106,6 +106,7 @@ export function MapDialog({
         channel,
         at: Date.now(),
         tombPresent,
+        ...(diedAt ? { diedAt } : {}),
       })
     ) {
       notify(t("report.saved"));
@@ -143,7 +144,6 @@ export function MapDialog({
         className="animate-rise panel flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-b-none sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex shrink-0 items-start gap-3 border-b border-edge p-5">
           <div className="min-w-0 flex-1">
             <h2 id="map-title" className="truncate text-xl font-bold sm:text-2xl">
@@ -190,21 +190,28 @@ export function MapDialog({
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_22rem] lg:overflow-hidden">
-          {/* Minimap + tombstone pins */}
           <div className="min-w-0 border-b border-edge p-5 lg:border-b-0 lg:border-r lg:overflow-y-auto">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <ChannelTabs value={channel} onChange={(c) => { setChannel(c); setDraftPin(null); }} timers={timers} />
+              <ChannelTabs
+                value={channel}
+                onChange={(c) => {
+                  setChannel(c);
+                  setDraftPin(null);
+                }}
+                timers={timers}
+              />
               <button
                 onClick={() => {
                   setPinMode((v) => !v);
                   setDraftPin(null);
                 }}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
                   pinMode
                     ? "border-spirit/50 bg-spirit/15 text-spirit"
                     : "border-edge text-muted hover:text-ink"
                 }`}
               >
+                <TombIcon />
                 {pinMode ? t("maps.tomb.cancel") : t("maps.tomb.pin")}
               </button>
             </div>
@@ -214,7 +221,7 @@ export function MapDialog({
               pins={channelPins}
               draft={draftPin}
               pinMode={pinMode}
-              onPick={(p) => setDraftPin(p)}
+              onPick={setDraftPin}
               hint={t("maps.tomb.click")}
             />
 
@@ -229,9 +236,10 @@ export function MapDialog({
                 </button>
               )}
               {!pinMode && bestPin && (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-abyss/60 px-3 py-2 text-xs">
-                  <span className="text-muted">
-                    {t("maps.tomb")} · {bestPin.votes} {t("maps.tomb.votes")}
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-imperial/25 bg-imperial/8 px-3 py-2 text-xs">
+                  <span className="flex items-center gap-1.5 text-imperial/90">
+                    <TombIcon />
+                    {bestPin.votes} {t("maps.tomb.votes")}
                     {bestPin.nick && <span className="text-faint"> · {bestPin.nick}</span>}
                   </span>
                   <button
@@ -251,7 +259,6 @@ export function MapDialog({
             </div>
           </div>
 
-          {/* Report column */}
           <div className="min-w-0 p-5 lg:overflow-y-auto">
             <ChannelStatus timer={timer} now={now} />
             <ReportControls
@@ -335,7 +342,7 @@ function ChannelStatus({ timer, now }: { timer: ChannelTimer | undefined; now: n
         {target !== null && (
           <span className="text-xs text-muted">
             {t(timer.state === "waiting" ? "timer.opens" : "timer.closes")}{" "}
-            <Countdown target={target} now={now} lang={prefs.lang} className="text-ink" />
+            <Countdown target={target} now={now} className="text-ink" />
           </span>
         )}
       </div>
@@ -349,9 +356,9 @@ function ChannelStatus({ timer, now }: { timer: ChannelTimer | undefined; now: n
             <span className="uppercase tracking-wider">{t("timer.window")}</span>
             <span>{formatClock(timer.closesAt, prefs.tz, prefs.hour12)}</span>
           </div>
-          <ChanceBar value={timer.chance} />
+          <TimerProgress value={timer.progress} state={timer.state} t={t} />
           <div className="text-right text-[10px] uppercase tracking-wider text-faint">
-            {t("timer.chance")}
+            {t("timer.progress")}
           </div>
         </div>
       )}
@@ -381,15 +388,16 @@ function ReportControls({
   disabled,
 }: {
   busy: boolean;
-  onDeath: (at: number, source: "kill" | "summon") => void;
-  onSighting: (tombPresent: boolean) => void;
+  onDeath: (at: number) => void;
+  onSighting: (tombPresent: boolean, diedAt?: number | null) => void;
   disabled: boolean;
 }) {
   const { prefs, t } = useApp();
   const [raw, setRaw] = useState("");
-  const [source, setSource] = useState<"kill" | "summon">("kill");
   const [invalid, setInvalid] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  /** Open when the visitor says the tombstone is there and may know its time. */
+  const [tombOpen, setTombOpen] = useState(false);
+  const [tombRaw, setTombRaw] = useState("");
 
   const preview = useMemo(() => {
     if (!raw.trim()) return null;
@@ -397,10 +405,16 @@ function ReportControls({
     return parsed.ok ? parsed.at : null;
   }, [raw, prefs.tz]);
 
+  const tombPreview = useMemo(() => {
+    if (!tombRaw.trim()) return null;
+    const parsed = parseTimeInput(tombRaw, prefs.tz);
+    return parsed.ok ? parsed.at : null;
+  }, [tombRaw, prefs.tz]);
+
   function submit() {
     if (disabled || busy) return;
     if (!raw.trim()) {
-      onDeath(Date.now(), source);
+      onDeath(Date.now());
       return;
     }
     const parsed = parseTimeInput(raw, prefs.tz);
@@ -409,8 +423,14 @@ function ReportControls({
       return;
     }
     setInvalid(false);
-    onDeath(parsed.at, source);
+    onDeath(parsed.at);
     setRaw("");
+  }
+
+  function sendTomb() {
+    onSighting(true, tombPreview);
+    setTombOpen(false);
+    setTombRaw("");
   }
 
   return (
@@ -421,7 +441,6 @@ function ReportControls({
         </label>
         <div className="flex gap-2">
           <input
-            ref={inputRef}
             value={raw}
             onChange={(e) => {
               setRaw(e.target.value);
@@ -458,42 +477,29 @@ function ReportControls({
       </div>
 
       <button
-        onClick={() => onDeath(Date.now(), source)}
+        onClick={() => onDeath(Date.now())}
         disabled={disabled || busy}
         className="w-full rounded-lg border border-overdue/40 bg-overdue/10 px-4 py-2.5 text-sm font-bold text-overdue transition-colors hover:bg-overdue/20 disabled:opacity-40"
       >
         {t("report.now")}
       </button>
 
-      <div>
-        <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-faint">
-          {t("report.source")}
-        </span>
-        <div className="flex gap-1 rounded-lg border border-edge bg-abyss p-1">
-          {(["kill", "summon"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSource(s)}
-              aria-pressed={source === s}
-              className={`flex-1 rounded-md px-2 py-2 text-xs font-medium transition-colors ${
-                source === s ? "bg-white/10 text-ink" : "text-muted hover:text-ink"
-              }`}
-            >
-              {t(`report.source.${s}`)}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div className="border-t border-edge pt-4">
-        <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-faint">
+        <span className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-faint">
+          <TombIcon />
           {t("report.tomb")}
         </span>
+
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={() => onSighting(true)}
+            onClick={() => setTombOpen((v) => !v)}
             disabled={disabled || busy}
-            className="rounded-lg border border-waiting/35 bg-waiting/8 px-3 py-2.5 text-xs font-semibold text-waiting transition-colors hover:bg-waiting/16 disabled:opacity-40"
+            aria-expanded={tombOpen}
+            className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition-colors disabled:opacity-40 ${
+              tombOpen
+                ? "border-waiting bg-waiting/20 text-waiting"
+                : "border-waiting/35 bg-waiting/8 text-waiting hover:bg-waiting/16"
+            }`}
           >
             {t("report.tomb.present")}
             <span className="mt-0.5 block text-[10px] font-normal opacity-70">
@@ -511,6 +517,55 @@ function ReportControls({
             </span>
           </button>
         </div>
+
+        {tombOpen && (
+          <div className="animate-rise mt-2 rounded-lg border border-waiting/30 bg-waiting/6 p-3">
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-waiting/80">
+              {t("report.tomb.time")}
+            </label>
+            <input
+              value={tombRaw}
+              onChange={(e) => setTombRaw(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendTomb()}
+              placeholder={t("report.placeholder")}
+              inputMode="numeric"
+              autoComplete="off"
+              autoFocus
+              className="tabular w-full rounded-lg border border-edge bg-abyss px-3 py-2 text-sm outline-none transition-colors focus:border-waiting/60"
+            />
+            <p className="mt-1.5 text-[10px] leading-relaxed text-faint">
+              {t("report.tomb.time.hint")}
+              {tombPreview !== null && (
+                <>
+                  {" — "}
+                  <span className="tabular text-waiting">
+                    {formatClock(tombPreview, prefs.tz, prefs.hour12)}
+                  </span>
+                </>
+              )}
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                onClick={sendTomb}
+                disabled={busy}
+                className="flex-1 rounded-lg bg-waiting px-3 py-2 text-xs font-bold text-void transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {t("report.tomb.send")}
+              </button>
+              <button
+                onClick={() => {
+                  setTombRaw("");
+                  onSighting(true, null);
+                  setTombOpen(false);
+                }}
+                disabled={busy}
+                className="rounded-lg border border-edge px-3 py-2 text-xs font-semibold text-muted transition-colors hover:text-ink disabled:opacity-40"
+              >
+                {t("report.tomb.skip")}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -547,7 +602,7 @@ function Minimap({
       ref={ref}
       onClick={handleClick}
       className={`relative aspect-square w-full overflow-hidden rounded-xl border border-edge bg-abyss ${
-        pinMode ? "cursor-crosshair ring-2 ring-spirit/50" : ""
+        pinMode ? "cursor-crosshair ring-2 ring-spirit/60" : ""
       }`}
     >
       <Image
@@ -556,7 +611,6 @@ function Minimap({
         fill
         sizes="(max-width: 1024px) 92vw, 640px"
         className="object-cover"
-        priority={false}
       />
 
       {pins.map((p, i) => (
@@ -565,7 +619,7 @@ function Minimap({
       {draft && <TombMarker x={draft.x} y={draft.y} primary draft />}
 
       {pinMode && !draft && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 text-center text-xs font-medium text-spirit">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-3 text-center text-xs font-semibold text-spirit">
           {hint}
         </div>
       )}
@@ -573,6 +627,10 @@ function Minimap({
   );
 }
 
+/**
+ * A real map pin rather than a dot: the tip marks the exact tile, and the head
+ * stays legible over bright minimaps like Sunny Meadows.
+ */
 function TombMarker({
   x,
   y,
@@ -589,18 +647,32 @@ function TombMarker({
   const color = draft ? "#5eead4" : primary ? "#fbbf24" : "#a1a1b5";
   return (
     <div
-      className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
+      className={`pointer-events-none absolute -translate-x-1/2 -translate-y-full ${
+        draft ? "animate-bounce" : ""
+      }`}
       style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
       title={votes ? `${votes}` : undefined}
     >
-      <span
-        className={`block size-4 rounded-full border-2 ${draft ? "animate-pulse" : ""}`}
-        style={{
-          borderColor: color,
-          background: `${color}44`,
-          boxShadow: `0 0 12px ${color}, 0 0 0 6px ${color}1a`,
-        }}
-      />
+      <svg width="34" height="44" viewBox="0 0 34 44" fill="none">
+        {/* Halo on the ground so the tip is findable on busy terrain */}
+        <ellipse cx="17" cy="41" rx="7" ry="2.5" fill={color} opacity="0.35" />
+        <path
+          d="M17 41C17 41 30 26.5 30 16.5A13 13 0 1 0 4 16.5C4 26.5 17 41 17 41Z"
+          fill={color}
+          stroke="#06060a"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        {/* Tombstone glyph punched out of the pin head */}
+        <path
+          d="M12.5 23v-7a4.5 4.5 0 0 1 9 0v7"
+          stroke="#06060a"
+          strokeWidth="2.1"
+          strokeLinecap="round"
+        />
+        <path d="M11 23h12" stroke="#06060a" strokeWidth="2.1" strokeLinecap="round" />
+        <path d="M17 13v4.5M14.75 15.25h4.5" stroke="#06060a" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
     </div>
   );
 }

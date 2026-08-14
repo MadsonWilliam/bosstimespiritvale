@@ -11,7 +11,7 @@ import { SERVER_LABELS } from "@/data/game";
 export function Hero({
   stats,
 }: {
-  stats: { deaths: number; sightings: number; users: number } | null;
+  stats: { deaths: number; inWindow: number; users: number } | null;
 }) {
   const { prefs, t } = useApp();
   const [hasBanner, setHasBanner] = useState(true);
@@ -57,9 +57,14 @@ export function Hero({
 
         {stats && (
           <dl className="mt-9 flex flex-wrap gap-x-8 gap-y-3">
-            <Stat label={t("report.death")} value={stats.deaths} />
-            <Stat label={t("report.tomb")} value={stats.sightings} />
-            <Stat label={t("nav.ranking")} value={stats.users} />
+            <Stat label={t("stats.deaths")} value={stats.deaths} />
+            <Stat
+              label={t("stats.inwindow")}
+              value={stats.inWindow}
+              hint={t("stats.inwindow.hint")}
+              accent
+            />
+            <Stat label={t("stats.contributors")} value={stats.users} />
           </dl>
         )}
       </div>
@@ -67,11 +72,25 @@ export function Hero({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({
+  label,
+  value,
+  hint,
+  accent = false,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  accent?: boolean;
+}) {
   return (
-    <div>
+    <div title={hint}>
       <dt className="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">{label}</dt>
-      <dd className="tabular mt-0.5 text-xl font-bold text-ink">{value.toLocaleString()}</dd>
+      <dd
+        className={`tabular mt-0.5 text-xl font-bold ${accent && value > 0 ? "text-window" : "text-ink"}`}
+      >
+        {value.toLocaleString()}
+      </dd>
     </div>
   );
 }

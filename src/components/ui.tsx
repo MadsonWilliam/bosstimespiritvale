@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BossState } from "@/lib/timers";
-import { formatDuration } from "@/lib/timers";
+import { formatDuration, WINDOW_OPEN_FRACTION } from "@/lib/timers";
 import type { T } from "@/lib/i18n";
 
 /** A shared ticking clock, so a hundred countdowns cost one timer each second. */
@@ -58,24 +58,80 @@ export function StateBadge({
 export function Countdown({
   target,
   now,
-  lang,
   className = "",
 }: {
   target: number | null;
   now: number;
-  lang: "pt" | "en";
   className?: string;
 }) {
   if (target === null) return <span className={className}>—</span>;
   const delta = target - now;
   return (
     <span className={`tabular ${className}`}>
-      {delta >= 0 ? formatDuration(delta, lang) : `+${formatDuration(-delta, lang)}`}
+      {delta >= 0 ? formatDuration(delta) : `+${formatDuration(-delta)}`}
     </span>
   );
 }
 
-/** Horizontal odds bar. Colour tracks how good the odds actually are. */
+/**
+ * Clock progress from the death to the end of the spawn window, with a tick
+ * marking where the guaranteed 60 minutes end and the random 30 begin. This
+ * is a stopwatch, not a forecast: it only ever goes up, and it reads 100% once
+ * the window has closed.
+ */
+export function TimerProgress({
+  value,
+  state,
+  t,
+  className = "",
+}: {
+  value: number | null;
+  state: BossState;
+  t: T;
+  className?: string;
+}) {
+  if (value === null) {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <div className="h-1.5 flex-1 rounded-full bg-white/6" />
+        <span className="tabular w-9 text-right text-[11px] text-faint">—</span>
+      </div>
+    );
+  }
+
+  const pct = Math.round(value * 100);
+  const color = STATE_STYLE[state].color;
+  const openPct = WINDOW_OPEN_FRACTION * 100;
+
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <div
+        className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/6"
+        title={`${t("timer.guaranteed")} → ${t("timer.random")}`}
+      >
+        {/* The random window, shaded so the danger zone is visible at a glance */}
+        <div
+          className="absolute inset-y-0 right-0 bg-window/12"
+          style={{ width: `${100 - openPct}%` }}
+        />
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700"
+          style={{ width: `${Math.max(1.5, pct)}%`, background: color }}
+        />
+        {/* Tick at the 60-minute mark */}
+        <div
+          className="absolute inset-y-0 w-px bg-white/40"
+          style={{ left: `${openPct}%` }}
+        />
+      </div>
+      <span className="tabular w-9 text-right text-[11px]" style={{ color }}>
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
+/** Odds bar used only where the number really is a forecast (the route). */
 export function ChanceBar({ value, className = "" }: { value: number; className?: string }) {
   const pct = Math.round(value * 100);
   const color = pct >= 55 ? "#34d399" : pct >= 25 ? "#fbbf24" : "#60a5fa";
@@ -91,6 +147,40 @@ export function ChanceBar({ value, className = "" }: { value: number; className?
         {pct}%
       </span>
     </div>
+  );
+}
+
+/**
+ * Whether this map/channel's tombstone location is known. People planning a
+ * route need this: without a pin you have to sweep the whole map to check.
+ */
+export function TombBadge({ pinned, t }: { pinned: boolean; t: T }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold"
+      style={{ color: pinned ? "var(--color-imperial)" : "var(--color-faint)" }}
+      title={t(pinned ? "tomb.marked" : "tomb.unmarked")}
+    >
+      <TombIcon muted={!pinned} />
+      {pinned ? t("tomb.marked") : t("tomb.unmarked")}
+    </span>
+  );
+}
+
+export function TombIcon({ muted = false }: { muted?: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" className="size-3" fill="none" aria-hidden>
+      <path
+        d="M4.5 14V6.5a3.5 3.5 0 0 1 7 0V14"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path d="M3 14h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      {!muted && (
+        <path d="M8 5v3.5M6.5 6.75h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      )}
+    </svg>
   );
 }
 

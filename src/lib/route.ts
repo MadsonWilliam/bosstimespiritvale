@@ -4,15 +4,18 @@
  * The useful question is not "which boss is up right now" but "which boss will
  * still be up when I actually get there". So every candidate is scored at its
  * projected arrival time, walking the route forward one stop at a time.
+ *
+ * There is no reliable map-to-map distance in SpiritVale — some maps have a
+ * warp, some do not, and sizes vary wildly. So travel is modelled with a
+ * per-map `difficulty` from 1 (trivial) to 2 (long trek), which the community
+ * calibrates by hand. That is honest about what we can and cannot measure.
  */
 
-import { BOSS_MAPS, hopsBetween, type BossMap } from "@/data/game";
-import { mapChance, type ChannelTimer } from "@/lib/timers";
+import { BOSS_MAPS, type BossMap } from "@/data/game";
+import { channelChanceAt, mapChanceAt, type BossState, type ChannelTimer } from "@/lib/timers";
 
-/** Rough minutes to cross one map connection, including loading. */
-const MINUTES_PER_HOP = 2.5;
-/** Minutes spent at a stop checking all three channels (and fighting). */
-const MINUTES_PER_STOP = 4;
+/** Minutes to reach and clear a difficulty-1.0 map, travel plus the fight. */
+const MINUTES_PER_STOP = 7;
 
 const MS_PER_MIN = 60 * 1000;
 
@@ -22,80 +25,109 @@ export type RouteStop = {
   arrivesAt: number;
   /** 0..1 chance at least one channel has a boss up on arrival. */
   chance: number;
+  /** What the best channel will be doing when you get there. */
+  stateAtArrival: BossState;
+  /** Earliest/latest spawn of the channel that drives this stop. */
+  opensAt: number | null;
+  closesAt: number | null;
   /** Channels worth checking, best first. */
-  channels: { channel: number; chance: number }[];
-  hopsFromPrevious: number;
+  channels: { channel: number; chance: number; state: BossState }[];
 };
 
 export type RouteInput = {
   /** Per-map channel timers, keyed by map slug. */
   timers: Record<string, ChannelTimer[]>;
-  /** Where the player is standing now; null lets the planner pick freely. */
-  startMap?: string | null;
   maxStops?: number;
-  /** Only consider these slugs (e.g. a level-range filter). */
+  /** Only consider these slugs. */
   only?: string[] | null;
   now?: number;
 };
 
-/** Chance of a single channel at an arbitrary future instant. */
-function channelChanceAt(t: ChannelTimer, at: number): number {
-  return mapChance([t], at);
-}
+/**
+ * Odds worth walking for. Below this a stop is noise: it pads the route with
+ * maps nobody should detour to.
+ */
+const MIN_USEFUL_CHANCE = 0.08;
 
 export function planRoute({
   timers,
-  startMap = null,
   maxStops = 6,
   only = null,
   now = Date.now(),
 }: RouteInput): RouteStop[] {
   const allowed = new Set(only ?? BOSS_MAPS.map((m) => m.slug));
   const remaining = BOSS_MAPS.filter(
-    (m) => m.boss !== null && allowed.has(m.slug) && (timers[m.slug]?.length ?? 0) > 0,
+    (m) =>
+      m.boss !== null &&
+      allowed.has(m.slug) &&
+      // A map nobody has ever reported cannot be scheduled — there is no clock.
+      (timers[m.slug] ?? []).some((t) => t.state !== "unknown"),
   );
 
   const stops: RouteStop[] = [];
-  let position = startMap;
   let clock = now;
 
   while (stops.length < maxStops && remaining.length > 0) {
-    let best: { idx: number; score: number; arrivesAt: number; hops: number } | null =
+    let best: { idx: number; score: number; arrivesAt: number; chance: number } | null =
       null;
 
     for (let i = 0; i < remaining.length; i++) {
       const candidate = remaining[i];
-      const hops = position ? hopsBetween(position, candidate.slug) : 0;
-      const arrivesAt = clock + hops * MINUTES_PER_HOP * MS_PER_MIN;
-      const chance = mapChance(timers[candidate.slug] ?? [], arrivesAt);
+      const travelMs = candidate.difficulty * MINUTES_PER_STOP * MS_PER_MIN;
+      const arrivesAt = clock + travelMs;
+      const chance = mapChanceAt(timers[candidate.slug] ?? [], arrivesAt);
 
-      // Slight penalty for travel so two equally likely bosses resolve in
-      // favour of the closer one, without ever hiding a much better target.
-      const score = chance / (1 + hops * 0.12);
+      // Harder maps must be meaningfully better to be worth the detour.
+      const score = chance / candidate.difficulty;
 
       if (!best || score > best.score) {
-        best = { idx: i, score, arrivesAt, hops };
+        best = { idx: i, score, arrivesAt, chance };
       }
     }
 
-    if (!best || best.score <= 0.005) break;
+    if (!best || best.chance < MIN_USEFUL_CHANCE) break;
 
     const [map] = remaining.splice(best.idx, 1);
+    const arrivesAt = best.arrivesAt;
+
     const channels = (timers[map.slug] ?? [])
-      .map((t) => ({ channel: t.channel, chance: channelChanceAt(t, best!.arrivesAt) }))
+      .map((t) => ({
+        channel: t.channel,
+        chance: channelChanceAt(t, arrivesAt),
+        state: stateAt(t, arrivesAt),
+      }))
       .sort((a, b) => b.chance - a.chance);
+
+    const lead = (timers[map.slug] ?? [])
+      .slice()
+      .sort((a, b) => channelChanceAt(b, arrivesAt) - channelChanceAt(a, arrivesAt))[0];
 
     stops.push({
       map,
-      arrivesAt: best.arrivesAt,
-      chance: mapChance(timers[map.slug] ?? [], best.arrivesAt),
+      arrivesAt,
+      chance: best.chance,
+      stateAtArrival: channels[0]?.state ?? "unknown",
+      opensAt: lead?.opensAt ?? null,
+      closesAt: lead?.closesAt ?? null,
       channels,
-      hopsFromPrevious: best.hops,
     });
 
-    position = map.slug;
-    clock = best.arrivesAt + MINUTES_PER_STOP * MS_PER_MIN;
+    clock = arrivesAt;
   }
 
   return stops;
+}
+
+/**
+ * Projects a channel's state forward to `at`. "alive" is deliberately not
+ * projected: a confirmed sighting decays into an ordinary window guess rather
+ * than promising the boss will still be standing there later.
+ */
+function stateAt(t: ChannelTimer, at: number): BossState {
+  if (t.state === "unknown") return "unknown";
+  if (t.opensAt === null || t.closesAt === null) return t.state;
+  if (t.state === "alive" && at < t.closesAt) return "alive";
+  if (at < t.opensAt) return "waiting";
+  if (at <= t.closesAt) return "window";
+  return "overdue";
 }

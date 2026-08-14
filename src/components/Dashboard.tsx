@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useApp } from "@/components/Providers";
 import { useServerState, useTimers } from "@/components/useBossState";
 import { Hero } from "@/components/Hero";
@@ -22,6 +22,30 @@ export function Dashboard() {
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [rankKey, setRankKey] = useState(0);
 
+  /** `${slug}:${channel}` for every channel whose tombstone has been pinned. */
+  const pinnedChannels = useMemo(
+    () => new Set((payload?.pins ?? []).map((p) => `${p.map_slug}:${p.channel}`)),
+    [payload],
+  );
+
+  /**
+   * "Em tempo" counts channels that are actionable this minute — in the random
+   * window or confirmed alive. Recomputed per minute so the header does not
+   * re-render every second.
+   */
+  const minuteBucket = Math.floor(now / 60_000);
+  const heroStats = useMemo(() => {
+    if (!payload) return null;
+    let inWindow = 0;
+    for (const list of Object.values(timers)) {
+      for (const timer of list) {
+        if (timer.state === "window" || timer.state === "alive") inWindow++;
+      }
+    }
+    return { deaths: payload.stats.deaths, inWindow, users: payload.stats.users };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload, minuteBucket]);
+
   const notify = useCallback((msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
   }, []);
@@ -42,7 +66,7 @@ export function Dashboard() {
   return (
     <>
       <main className="mx-auto max-w-7xl space-y-20 px-4 pb-8 pt-4 sm:px-6">
-        <Hero stats={payload?.stats ?? null} />
+        <Hero stats={heroStats} />
 
         {error && (
           <div className="panel-flat flex items-center justify-between gap-3 border-overdue/40 p-4 text-sm">
@@ -57,8 +81,18 @@ export function Dashboard() {
         )}
 
         <MapsSection timers={timers} now={now} onOpen={setOpenMap} />
-        <TimersSection timers={timers} now={now} onOpen={setOpenMap} />
-        <RouteSection timers={timers} now={now} onOpen={setOpenMap} />
+        <TimersSection
+          timers={timers}
+          pinnedChannels={pinnedChannels}
+          now={now}
+          onOpen={setOpenMap}
+        />
+        <RouteSection
+          timers={timers}
+          pinnedChannels={pinnedChannels}
+          now={now}
+          onOpen={setOpenMap}
+        />
         <RankingSection refreshKey={rankKey} />
       </main>
 
@@ -74,9 +108,7 @@ export function Dashboard() {
         />
       )}
 
-      {toast && (
-        <Toast message={toast.msg} tone={toast.tone} onDone={() => setToast(null)} />
-      )}
+      {toast && <Toast message={toast.msg} tone={toast.tone} onDone={() => setToast(null)} />}
     </>
   );
 }

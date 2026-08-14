@@ -53,7 +53,7 @@ export async function GET(req: Request) {
       now: Date.now(),
       reports,
       pins: listPins(),
-      stats: stats(),
+      stats: stats(server),
     };
 
     return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });

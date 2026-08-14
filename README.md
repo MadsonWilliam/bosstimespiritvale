@@ -38,13 +38,24 @@ morte de um boss, o site calcula a janela de respawn e sugere uma rota de farm.
 | `VENCIDO` | Passou dos 90 min sem notícia. Provavelmente morreu e ninguém reportou. |
 | `SEM INFO` / `SEM DADOS` | Velho demais, ou ninguém reportou. |
 
-### Como a chance é calculada
+### Os três números (e por que não são a mesma coisa)
 
-O momento do spawn é tratado como uniforme dentro da janela de 30 min, e cada
-boss que nasce "sobrevive" com decaimento exponencial (meia-vida configurável em
-`SURVIVAL_TAU_MS`, hoje 20 min). A integral das duas coisas dá a probabilidade
-de estar de pé num instante qualquer — inclusive num instante **futuro**, que é
-o que o planejador de rota usa para pontuar cada parada.
+Misturar isso é o que deixa um quadro de boss confuso, então `src/lib/timers.ts`
+mantém os três separados:
+
+| Número | O que é | Onde aparece |
+|---|---|---|
+| `progress` | Cronômetro puro: 0 na morte, 100% quando a janela fecha. Só sobe. | **Seção 02 — Timers** |
+| `spawnChance` | Chance de **já ter nascido**: 0 antes da janela, 100% depois que ela fecha. | interno |
+| `chance` | Chance de estar **vivo agora** — já nasceu menos os que já morreram. | **Seção 03 — Rota** |
+
+Um boss com a janela vencida marca `progress` 100% (o relógio acabou) mas
+`chance` baixa (provavelmente alguém já matou). São perguntas diferentes.
+
+O `chance` sai da densidade uniforme de spawn integrada contra sobrevivência
+exponencial (meia-vida em `SURVIVAL_TAU_MS`, hoje 20 min). Como é uma função de
+um instante qualquer, a rota consegue avaliar cada parada **no horário previsto
+de chegada** em vez de agora.
 
 ---
 
@@ -119,9 +130,16 @@ objeto no array `BOSS_MAPS` e colocar `public/minimaps/<slug>-full.webp`.
 > os minimaps são quadrados (1280×1280) e os pins são gravados em coordenadas
 > relativas (0–1), então qualquer resolução funciona.
 
-> **Atenção:** o campo `neighbors` (quais mapas ficam do lado de quais) é um
-> **palpite da comunidade**, não dado oficial. Ele só afeta a ordem da rota
-> sugerida. Corrigir esse grafo é a melhoria de maior impacto no produto.
+### O campo `difficulty`
+
+Não existe distância confiável entre mapas em SpiritVale — alguns têm warp,
+outros não, e os tamanhos variam muito. Em vez de fingir que dá para medir, cada
+mapa carrega um `difficulty` de **1 (fácil)** a **2 (difícil)**: quanto custa
+chegar lá e achar o boss.
+
+Ele faz duas coisas na rota: estima o tempo de deslocamento até a próxima parada
+e penaliza mapas caros no desempate. **Não é exibido como número** para o
+visitante — é peso de cálculo, não conteúdo.
 
 ---
 
@@ -182,7 +200,9 @@ O banco inteiro é um arquivo. Backup = copiar `/data/bosstime.db` (junto com
 - **Boss de The Echoing Spire** — não catalogado; o mapa aparece sem boss.
 - **`public/banner.webp`** — se existir, vira o fundo do hero automaticamente.
   Enquanto não existir, o gradiente cobre.
-- **Grafo de vizinhança** dos mapas — palpite, ver aviso acima.
+- **`difficulty` de dois mapas** não veio da lista da comunidade e está chutado:
+  `abyss-castle-library` (1.4, copiado do Crypt) e `the-echoing-spire` (1.5, sem
+  boss, então não afeta nada hoje).
 - **Rate limit em memória** — funciona para 1 container. Se um dia rodar com
   réplicas, precisa ir para o banco.
 

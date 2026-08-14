@@ -39,8 +39,20 @@ export async function POST(req: Request) {
       const seenAt = asTimestamp(body.at ?? Date.now());
       const tombPresent = Boolean(body.tombPresent);
       recordSighting({ server, mapSlug, channel, seenAt, tombPresent, userId: identity.userId });
-      if (identity.userId) awardPoints(identity.userId, POINTS.sighting);
-      return NextResponse.json({ ok: true, awarded: identity.userId ? POINTS.sighting : 0 });
+
+      let awarded = identity.userId ? POINTS.sighting : 0;
+
+      // In game the tombstone displays the time the boss died. Reading it off
+      // the stone pins the window exactly, which is far better than the "some
+      // time before now" a bare sighting gives us — so it is worth full marks.
+      if (tombPresent && body.diedAt !== undefined && body.diedAt !== null) {
+        const diedAt = asTimestamp(body.diedAt);
+        recordDeath({ server, mapSlug, channel, diedAt, source: "kill", userId: identity.userId });
+        if (identity.userId) awarded += POINTS.kill;
+      }
+
+      if (identity.userId && awarded) awardPoints(identity.userId, awarded);
+      return NextResponse.json({ ok: true, awarded });
     }
 
     const diedAt = asTimestamp(body.at ?? Date.now());

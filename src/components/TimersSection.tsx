@@ -5,7 +5,7 @@ import { useApp } from "@/components/Providers";
 import { ELEMENTS, MAP_BY_SLUG, type BossMap } from "@/data/game";
 import { compareTimers, type BossState, type ChannelTimer } from "@/lib/timers";
 import { formatClock } from "@/lib/time-input";
-import { ChanceBar, Countdown, Section, StateBadge } from "@/components/ui";
+import { Countdown, Section, StateBadge, TimerProgress, TombBadge } from "@/components/ui";
 
 /** States worth putting on the board by default — the rest is noise. */
 const RELEVANT: BossState[] = ["alive", "window", "overdue", "waiting"];
@@ -14,10 +14,13 @@ type Row = { map: BossMap; timer: ChannelTimer };
 
 export function TimersSection({
   timers,
+  pinnedChannels,
   now,
   onOpen,
 }: {
   timers: Record<string, ChannelTimer[]>;
+  /** Set of `${slug}:${channel}` that have a tombstone pin. */
+  pinnedChannels: Set<string>;
   now: number;
   onOpen: (map: BossMap) => void;
 }) {
@@ -62,6 +65,7 @@ export function TimersSection({
                 key={`${map.slug}:${timer.channel}`}
                 map={map}
                 timer={timer}
+                pinned={pinnedChannels.has(`${map.slug}:${timer.channel}`)}
                 now={now}
                 onOpen={onOpen}
               />
@@ -76,11 +80,13 @@ export function TimersSection({
 function TimerRow({
   map,
   timer,
+  pinned,
   now,
   onOpen,
 }: {
   map: BossMap;
   timer: ChannelTimer;
+  pinned: boolean;
   now: number;
   onOpen: (m: BossMap) => void;
 }) {
@@ -112,21 +118,25 @@ function TimerRow({
               </span>
             )}
           </span>
-          <span className="mt-0.5 flex items-center gap-2 text-xs text-muted">
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted">
             <span className="truncate">{map.boss?.name}</span>
             {timer.lastDeath && (
               <span className="tabular hidden shrink-0 text-faint sm:inline">
                 † {formatClock(timer.lastDeath.diedAt, prefs.tz, prefs.hour12)}
               </span>
             )}
+            <TombBadge pinned={pinned} t={t} />
           </span>
           <span className="mt-2 block max-w-56 sm:hidden">
-            <ChanceBar value={timer.chance} />
+            <TimerProgress value={timer.progress} state={timer.state} t={t} />
           </span>
         </span>
 
         <span className="hidden w-40 shrink-0 sm:block">
-          <ChanceBar value={timer.chance} />
+          <TimerProgress value={timer.progress} state={timer.state} t={t} />
+          <span className="mt-1 block text-right text-[10px] uppercase tracking-wider text-faint">
+            {t("timer.progress")}
+          </span>
         </span>
 
         <span className="flex shrink-0 flex-col items-end gap-1">
@@ -134,7 +144,7 @@ function TimerRow({
           {target !== null && (
             <span className="text-[11px] text-muted">
               {t(timer.state === "waiting" ? "timer.opens" : "timer.closes")}{" "}
-              <Countdown target={target} now={now} lang={prefs.lang} className="text-ink" />
+              <Countdown target={target} now={now} className="text-ink" />
             </span>
           )}
         </span>

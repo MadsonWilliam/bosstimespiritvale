@@ -162,7 +162,7 @@ function MapCard({
               >
                 <span className="opacity-60">{timer.channel}</span>
                 {target !== null ? (
-                  <Countdown target={target} now={now} lang={prefs.lang} />
+                  <Countdown target={target} now={now} />
                 ) : timer.state === "alive" ? (
                   "●"
                 ) : (

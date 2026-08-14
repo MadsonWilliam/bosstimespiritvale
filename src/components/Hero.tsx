@@ -11,7 +11,7 @@ import { SERVER_LABELS } from "@/data/game";
 export function Hero({
   stats,
 }: {
-  stats: { deaths: number; inWindow: number; users: number } | null;
+  stats: { registered: number; inWindow: number; users: number } | null;
 }) {
   const { prefs, t } = useApp();
   const [hasBanner, setHasBanner] = useState(true);
@@ -57,7 +57,11 @@ export function Hero({
 
         {stats && (
           <dl className="mt-9 flex flex-wrap gap-x-8 gap-y-3">
-            <Stat label={t("stats.deaths")} value={stats.deaths} />
+            <Stat
+              label={t("stats.registered")}
+              value={stats.registered}
+              hint={t("stats.registered.hint")}
+            />
             <Stat
               label={t("stats.inwindow")}
               value={stats.inWindow}

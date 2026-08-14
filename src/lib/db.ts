@@ -27,7 +27,31 @@ export function db(): Database.Database {
   return conn;
 }
 
+/**
+ * Runs `fn` exactly once ever, on this database file. Used for destructive or
+ * one-way steps that must not repeat on the next container restart.
+ */
+function once(conn: Database.Database, key: string, fn: () => void) {
+  const done = conn
+    .prepare("SELECT 1 AS x FROM schema_meta WHERE key = ?")
+    .get(key);
+  if (done) return;
+  conn.transaction(() => {
+    fn();
+    conn
+      .prepare("INSERT INTO schema_meta (key, applied_at) VALUES (?, ?)")
+      .run(key, Date.now());
+  })();
+}
+
 function migrate(conn: Database.Database) {
+  conn.exec(`
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key        TEXT    PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
+  `);
+
   conn.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id           INTEGER PRIMARY KEY,
@@ -86,6 +110,36 @@ function migrate(conn: Database.Database) {
       PRIMARY KEY (pin_id, user_id)
     );
   `);
+
+  // Clean slate before opening to the community: the pre-launch rows were test
+  // data, and the reputation curve changed underneath them.
+  once(conn, "reset-before-launch-2026-08", () => {
+    conn.exec(`
+      DELETE FROM pin_votes;
+      DELETE FROM pins;
+      DELETE FROM sightings;
+      DELETE FROM deaths;
+      DELETE FROM users;
+    `);
+  });
+
+  // A tombstone sits in exactly one spot per map and channel. Keeping the
+  // best-supported row and enforcing it in the schema stops the board filling
+  // with rival pins for the same stone.
+  once(conn, "pins-one-per-channel-2026-08", () => {
+    conn.exec(`
+      DELETE FROM pins WHERE id NOT IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY map_slug, channel ORDER BY votes DESC, created_at ASC
+          ) AS rn FROM pins
+        ) WHERE rn = 1
+      );
+    `);
+  });
+  conn.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS pins_unique_channel ON pins (map_slug, channel);",
+  );
 }
 
 /* ------------------------------------------------------------------ users */
@@ -208,7 +262,24 @@ export type DeathRow = {
   died_at: number;
   source: "kill" | "summon";
   nick: string | null;
+  /** Reporter's score, so the UI can show the title they earned. */
+  points: number | null;
 };
+
+/** Most recent death for one channel — the timer a new report would replace. */
+export function latestDeathFor(
+  server: string,
+  mapSlug: string,
+  channel: number,
+): { died_at: number } | undefined {
+  return db()
+    .prepare(
+      `SELECT died_at FROM deaths
+       WHERE server = ? AND map_slug = ? AND channel = ?
+       ORDER BY died_at DESC LIMIT 1`,
+    )
+    .get(server, mapSlug, channel) as { died_at: number } | undefined;
+}
 
 export function recordDeath(input: {
   server: string;
@@ -238,7 +309,7 @@ export function recordDeath(input: {
 export function latestDeaths(server: string): DeathRow[] {
   return db()
     .prepare(
-      `SELECT d.id, d.server, d.map_slug, d.channel, d.died_at, d.source, u.nick
+      `SELECT d.id, d.server, d.map_slug, d.channel, d.died_at, d.source, u.nick, u.points
        FROM deaths d
        LEFT JOIN users u ON u.id = d.user_id
        WHERE d.server = ?
@@ -260,6 +331,7 @@ export type SightingRow = {
   seen_at: number;
   tomb_present: number;
   nick: string | null;
+  points: number | null;
 };
 
 export function recordSighting(input: {
@@ -289,7 +361,7 @@ export function recordSighting(input: {
 export function latestSightings(server: string): SightingRow[] {
   return db()
     .prepare(
-      `SELECT s.id, s.map_slug, s.channel, s.seen_at, s.tomb_present, u.nick
+      `SELECT s.id, s.map_slug, s.channel, s.seen_at, s.tomb_present, u.nick, u.points
        FROM sightings s
        LEFT JOIN users u ON u.id = s.user_id
        WHERE s.server = ?
@@ -323,26 +395,51 @@ export function listPins(mapSlug?: string): PinRow[] {
   return (mapSlug ? stmt.all(mapSlug) : stmt.all()) as PinRow[];
 }
 
-export function addPin(input: {
+/**
+ * Sets the one tombstone pin for a map + channel, moving it if it already
+ * exists. Moving resets the confirmations: the votes belonged to the old spot,
+ * not the new one.
+ */
+export function upsertPin(input: {
   mapSlug: string;
   channel: number;
   x: number;
   y: number;
   userId: number | null;
-}): number {
-  const info = db()
-    .prepare(
-      `INSERT INTO pins (map_slug, channel, x, y, votes, user_id, created_at)
-       VALUES (?, ?, ?, ?, 1, ?, ?)`,
-    )
-    .run(input.mapSlug, input.channel, input.x, input.y, input.userId, Date.now());
-  const pinId = Number(info.lastInsertRowid);
-  if (input.userId) {
-    db()
-      .prepare("INSERT OR IGNORE INTO pin_votes (pin_id, user_id) VALUES (?, ?)")
-      .run(pinId, input.userId);
-  }
-  return pinId;
+}): { id: number; created: boolean } {
+  const conn = db();
+  return conn.transaction(() => {
+    const existing = conn
+      .prepare("SELECT id FROM pins WHERE map_slug = ? AND channel = ?")
+      .get(input.mapSlug, input.channel) as { id: number } | undefined;
+
+    if (existing) {
+      conn
+        .prepare("UPDATE pins SET x = ?, y = ?, votes = 1, user_id = ?, created_at = ? WHERE id = ?")
+        .run(input.x, input.y, input.userId, Date.now(), existing.id);
+      conn.prepare("DELETE FROM pin_votes WHERE pin_id = ?").run(existing.id);
+      if (input.userId) {
+        conn
+          .prepare("INSERT OR IGNORE INTO pin_votes (pin_id, user_id) VALUES (?, ?)")
+          .run(existing.id, input.userId);
+      }
+      return { id: existing.id, created: false };
+    }
+
+    const info = conn
+      .prepare(
+        `INSERT INTO pins (map_slug, channel, x, y, votes, user_id, created_at)
+         VALUES (?, ?, ?, ?, 1, ?, ?)`,
+      )
+      .run(input.mapSlug, input.channel, input.x, input.y, input.userId, Date.now());
+    const pinId = Number(info.lastInsertRowid);
+    if (input.userId) {
+      conn
+        .prepare("INSERT OR IGNORE INTO pin_votes (pin_id, user_id) VALUES (?, ?)")
+        .run(pinId, input.userId);
+    }
+    return { id: pinId, created: true };
+  })();
 }
 
 /** Returns false when this user already backed that pin. */

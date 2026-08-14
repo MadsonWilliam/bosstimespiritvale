@@ -44,10 +44,14 @@ export type RouteInput = {
 };
 
 /**
- * Odds worth walking for. Below this a stop is noise: it pads the route with
- * maps nobody should detour to.
+ * A route is a plan for where to go next, so it only ever contains bosses that
+ * are up or still on the clock. Anything whose window has already closed by the
+ * time you would arrive is gone — putting it on the list is noise, not advice.
  */
-const MIN_USEFUL_CHANCE = 0.08;
+const ROUTABLE: BossState[] = ["alive", "window", "waiting"];
+
+/** Tier 0 is worth walking to now; tier 1 is where you go afterwards. */
+const tierOf = (state: BossState) => (state === "waiting" ? 1 : 0);
 
 export function planRoute({
   timers,
@@ -68,54 +72,87 @@ export function planRoute({
   let clock = now;
 
   while (stops.length < maxStops && remaining.length > 0) {
-    let best: { idx: number; score: number; arrivesAt: number; chance: number } | null =
-      null;
+    let best:
+      | { idx: number; tier: number; score: number; arrivesAt: number; chance: number }
+      | null = null;
 
     for (let i = 0; i < remaining.length; i++) {
       const candidate = remaining[i];
       const travelMs = candidate.difficulty * MINUTES_PER_STOP * MS_PER_MIN;
       const arrivesAt = clock + travelMs;
-      const chance = mapChanceAt(timers[candidate.slug] ?? [], arrivesAt);
+      const list = timers[candidate.slug] ?? [];
 
-      // Harder maps must be meaningfully better to be worth the detour.
-      const score = chance / candidate.difficulty;
+      // Judge the map by its most promising *routable* channel. Filtering has
+      // to happen before ranking: an unreported channel is not tier 0, it is
+      // no channel at all, and letting it lead would drop the whole map.
+      const leadState = list
+        .map((t) => stateAt(t, arrivesAt))
+        .filter((s) => ROUTABLE.includes(s))
+        .sort((a, b) => tierOf(a) - tierOf(b))[0];
+      if (!leadState) continue;
 
-      if (!best || score > best.score) {
-        best = { idx: i, score, arrivesAt, chance };
-      }
+      const tier = tierOf(leadState);
+      const chance = mapChanceAt(list, arrivesAt);
+
+      /*
+       * Tier 0 — already up or in the window: go for the best odds, discounted
+       *   by how painful the map is to run.
+       * Tier 1 — still inside the guaranteed 60 minutes: nothing to fight yet,
+       *   so the question is only "which is cheapest to be standing at when it
+       *   pops". Waiting minutes multiplied by difficulty, lowest wins: a 14
+       *   min wait on an easy map beats a 10 min wait on a hard one.
+       */
+      const score =
+        tier === 0
+          ? chance / candidate.difficulty
+          : -minutesUntilOpen(list, arrivesAt) * candidate.difficulty;
+
+      const better =
+        !best || tier < best.tier || (tier === best.tier && score > best.score);
+      if (better) best = { idx: i, tier, score, arrivesAt, chance };
     }
 
-    if (!best || best.chance < MIN_USEFUL_CHANCE) break;
+    if (!best) break;
 
     const [map] = remaining.splice(best.idx, 1);
     const arrivesAt = best.arrivesAt;
 
-    const channels = (timers[map.slug] ?? [])
+    const list = timers[map.slug] ?? [];
+    const channels = list
       .map((t) => ({
+        timer: t,
         channel: t.channel,
         chance: channelChanceAt(t, arrivesAt),
         state: stateAt(t, arrivesAt),
       }))
-      .sort((a, b) => b.chance - a.chance);
+      .filter((c) => ROUTABLE.includes(c.state))
+      // Ready-to-fight channels first, then the ones still counting down.
+      .sort((a, b) => tierOf(a.state) - tierOf(b.state) || b.chance - a.chance);
 
-    const lead = (timers[map.slug] ?? [])
-      .slice()
-      .sort((a, b) => channelChanceAt(b, arrivesAt) - channelChanceAt(a, arrivesAt))[0];
+    const lead = channels[0];
 
     stops.push({
       map,
       arrivesAt,
       chance: best.chance,
-      stateAtArrival: channels[0]?.state ?? "unknown",
-      opensAt: lead?.opensAt ?? null,
-      closesAt: lead?.closesAt ?? null,
-      channels,
+      stateAtArrival: lead?.state ?? "unknown",
+      opensAt: lead?.timer.opensAt ?? null,
+      closesAt: lead?.timer.closesAt ?? null,
+      channels: channels.map(({ channel, chance, state }) => ({ channel, chance, state })),
     });
 
     clock = arrivesAt;
   }
 
   return stops;
+}
+
+/** Minutes you would still be waiting at `at` for the soonest channel to open. */
+function minutesUntilOpen(timers: ChannelTimer[], at: number): number {
+  const waits = timers
+    .filter((t) => t.opensAt !== null && t.opensAt > at)
+    .map((t) => (t.opensAt! - at) / MS_PER_MIN);
+  return waits.length ? Math.min(...waits) : 0;
 }
 
 /**

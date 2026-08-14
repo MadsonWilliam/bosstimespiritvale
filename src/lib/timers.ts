@@ -42,10 +42,13 @@ export type DeathReport = {
   diedAt: number;
   source: "kill" | "summon";
   reporter: string | null;
+  /** Reporter score, so the UI can show the title they earned. */
+  reporterPoints: number | null;
 };
 
 export type Sighting = {
   seenAt: number;
+  reporterPoints?: number | null;
   /** true = tombstone still there (not spawned), false = tombstone gone (spawned). */
   tombPresent: boolean;
   reporter: string | null;
@@ -213,23 +216,25 @@ export function mapChanceAt(timers: ChannelTimer[], at: number): number {
   return clamp01(1 - noneUp);
 }
 
-/** Ordering used by the timer board: most actionable first. */
-const STATE_RANK: Record<BossState, number> = {
+/**
+ * Board ordering. Confirmed kills come first, then everything with a running
+ * clock sorted by how close it is to popping — which naturally puts the
+ * 30-minute window above the guaranteed 60. Expired channels sink below all of
+ * them: they are a "nobody reported this" notice, not something to plan around.
+ */
+const GROUP: Record<BossState, number> = {
   alive: 0,
   window: 1,
+  waiting: 1,
   overdue: 2,
-  waiting: 3,
-  stale: 4,
-  unknown: 5,
+  stale: 3,
+  unknown: 4,
 };
 
 export function compareTimers(a: ChannelTimer, b: ChannelTimer): number {
-  const r = STATE_RANK[a.state] - STATE_RANK[b.state];
-  if (r !== 0) return r;
-  if (a.state === "waiting" && b.state === "waiting") {
-    return (a.opensAt ?? Infinity) - (b.opensAt ?? Infinity);
-  }
-  // Within a state, the one further along the clock is the more urgent one.
+  const g = GROUP[a.state] - GROUP[b.state];
+  if (g !== 0) return g;
+  // Within a group, the one further along the clock is the more urgent one.
   return (b.progress ?? 0) - (a.progress ?? 0);
 }
 

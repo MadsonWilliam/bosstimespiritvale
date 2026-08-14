@@ -27,11 +27,12 @@ export const RESPAWN_MAX_MS = 90 * 60 * 1000; // + up to 30 random min
 export const RESPAWN_RANDOM_MS = RESPAWN_MAX_MS - RESPAWN_MIN_MS;
 
 /**
- * How long past the top of the window we keep showing a timer before calling
- * it unreliable. Past this the boss was almost certainly killed without anyone
- * reporting it, which is extremely common.
+ * Grace period after the window closes. For these few minutes the channel is
+ * flagged red so people notice nobody reported the kill; after that it drops
+ * off the board entirely rather than lingering as noise in the timers and the
+ * route. A dead boss has no route.
  */
-export const STALE_AFTER_MS = 45 * 60 * 1000;
+export const STALE_AFTER_MS = 3 * 60 * 1000;
 
 export type Element =
   | "wind"

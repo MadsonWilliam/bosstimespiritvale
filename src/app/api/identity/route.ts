@@ -33,8 +33,8 @@ export async function POST(req: Request) {
         ...user,
         level: levelFor(user.points),
         progress: levelProgress(user.points),
-        rank: rankFor(user.points),
-        next: nextRank(user.points),
+        rank: rankFor(user.points, user.nick),
+        next: nextRank(user.points, user.nick),
       },
     });
   } catch (err) {

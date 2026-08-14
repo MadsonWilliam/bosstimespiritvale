@@ -73,6 +73,22 @@ const pt: Dict = {
   "timer.guaranteed": "60 min garantidos",
   "timer.random": "janela de 30 min",
 
+"stats.registered": "Registrados",
+  "stats.registered.hint": "Channels dentro dos 60 minutos garantidos",
+
+  "lock.title": "Timer protegido",
+  "lock.body":
+    "Esse channel morreu faz menos de 60 minutos, então o boss ainda não pode ter nascido de novo. Sabemos que ele pode ter sido invocado com a chave — mas precisamos dessa trava para proteger de trolls.",
+  "lock.unlocks": "Libera em",
+  "lock.ok": "Entendi",
+
+  "report.pin.ready": "Lápide marcada — registre para confirmar",
+  "report.pin.hint": "Clique no mapa para marcar a lápide. Ela é salva junto com o registro.",
+  "report.by": "Reportado por",
+
+  "coffee.header": "Pagar um café",
+  "coffee.header.hint": "Se te ajudou a dropar, considera uma boa ação",
+
   "stats.deaths": "Mortos",
   "stats.inwindow": "Em tempo",
   "stats.contributors": "Ranking",
@@ -245,6 +261,22 @@ const en: Dict = {
   "timer.windowopens": "window opens",
   "timer.guaranteed": "60 min guaranteed",
   "timer.random": "30 min window",
+
+"stats.registered": "Registered",
+  "stats.registered.hint": "Channels inside the guaranteed 60 minutes",
+
+  "lock.title": "Timer protected",
+  "lock.body":
+    "This channel died less than 60 minutes ago, so the boss cannot have respawned yet. We know it may have been summoned with a key — but this lock is what keeps trolls out.",
+  "lock.unlocks": "Unlocks in",
+  "lock.ok": "Got it",
+
+  "report.pin.ready": "Tombstone marked — save a report to confirm",
+  "report.pin.hint": "Click the map to mark the tombstone. It is saved together with your report.",
+  "report.by": "Reported by",
+
+  "coffee.header": "Buy a coffee",
+  "coffee.header.hint": "If it helped you drop, consider a good deed",
 
   "stats.deaths": "Deaths",
   "stats.inwindow": "In window",

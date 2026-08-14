@@ -38,6 +38,7 @@ export async function GET(req: Request) {
         diedAt: d.died_at,
         source: d.source,
         reporter: d.nick,
+        reporterPoints: d.points,
       };
     }
     for (const s of latestSightings(server)) {
@@ -45,6 +46,7 @@ export async function GET(req: Request) {
         seenAt: s.seen_at,
         tombPresent: Boolean(s.tomb_present),
         reporter: s.nick,
+        reporterPoints: s.points,
       };
     }
 

@@ -64,6 +64,9 @@ export function Header() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            {/* Below sm the top row is already full; the tip jar moves down to
+                the nav strip instead of pushing the header past the viewport. */}
+            <CoffeeAction t={t} className="hidden sm:flex" />
             <ServerSwitch value={prefs.server} onChange={(s) => setPrefs({ server: s })} />
 
             <button
@@ -105,7 +108,7 @@ export function Header() {
           </div>
         </div>
 
-        <nav className="no-scrollbar flex gap-1 overflow-x-auto border-t border-edge/60 px-4 py-2 lg:hidden">
+        <nav className="no-scrollbar flex items-center gap-1 overflow-x-auto border-t border-edge/60 px-4 py-2 lg:hidden">
           {NAV.map((n) => (
             <a
               key={n.href}
@@ -115,6 +118,7 @@ export function Header() {
               {t(n.key)}
             </a>
           ))}
+          <CoffeeAction t={t} className="ml-1 shrink-0 sm:hidden" showLabel />
         </nav>
       </header>
 
@@ -123,6 +127,68 @@ export function Header() {
       )}
       {showIdentity && <IdentityPanel onClose={() => setShowIdentity(false)} />}
     </>
+  );
+}
+
+/**
+ * Tip jar. Renders as a real link once NEXT_PUBLIC_COFFEE_URL is set and as a
+ * quiet chip until then, so the header never carries a button that does
+ * nothing when clicked.
+ */
+function CoffeeAction({
+  t,
+  className: extra = "",
+  showLabel = false,
+}: {
+  t: (k: string) => string;
+  className?: string;
+  showLabel?: boolean;
+}) {
+  const url = process.env.NEXT_PUBLIC_COFFEE_URL ?? "";
+  const content = (
+    <>
+      <CoffeeIcon />
+      <span className={showLabel ? "" : "hidden xl:inline"}>{t("coffee.header")}</span>
+    </>
+  );
+  const className = `${extra} items-center gap-1.5 rounded-lg border border-imperial/30 bg-imperial/10 px-2.5 py-2 text-xs font-semibold text-imperial transition-colors ${
+    extra.includes("hidden") ? "" : "flex"
+  }`;
+
+  return url ? (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      title={t("coffee.header.hint")}
+      className={`${className} hover:bg-imperial/20`}
+    >
+      {content}
+    </a>
+  ) : (
+    <span title={`${t("coffee.header.hint")} — ${t("footer.coffee.soon")}`} className={className}>
+      {content}
+    </span>
+  );
+}
+
+function CoffeeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden>
+      <path
+        d="M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path d="M8 3v2M12 3v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 

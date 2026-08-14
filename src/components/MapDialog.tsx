@@ -6,6 +6,7 @@ import { useApp } from "@/components/Providers";
 import { CHANNELS, ELEMENTS, minimapUrl, type BossMap, type Channel } from "@/data/game";
 import type { ChannelTimer } from "@/lib/timers";
 import { formatClock, parseTimeInput } from "@/lib/time-input";
+import { levelFor, rankFor } from "@/lib/ranks";
 import { Countdown, StateBadge, TimerProgress, TombIcon } from "@/components/ui";
 import type { StatePayload } from "@/app/api/state/route";
 
@@ -30,9 +31,10 @@ export function MapDialog({
 }) {
   const { prefs, identity, setIdentity, t } = useApp();
   const [channel, setChannel] = useState<Channel>(1);
-  const [pinMode, setPinMode] = useState(false);
   const [draftPin, setDraftPin] = useState<{ x: number; y: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Set when the API refuses a change inside the guaranteed 60 minutes. */
+  const [locked, setLocked] = useState<number | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -69,6 +71,10 @@ export function MapDialog({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (res.status === 409 && data.error === 'locked_window') {
+          setLocked(data.unlocksAt ?? Date.now());
+          return false;
+        }
         notify(
           res.status === 429
             ? t("report.ratelimited")
@@ -90,8 +96,25 @@ export function MapDialog({
     }
   }
 
+  /**
+   * A pending tombstone mark rides along with whatever report is submitted
+   * next. That is what makes it real: the pin inherits the same anti-troll
+   * rules as the timer instead of being a free-for-all click.
+   */
+  const withPin = () => (draftPin ? { tombPin: draftPin } : {});
+
   async function reportDeath(at: number) {
-    if (await post("/api/report", { kind: "death", server: prefs.server, mapSlug: map.slug, channel, at })) {
+    if (
+      await post("/api/report", {
+        kind: "death",
+        server: prefs.server,
+        mapSlug: map.slug,
+        channel,
+        at,
+        ...withPin(),
+      })
+    ) {
+      setDraftPin(null);
       notify(t("report.saved"));
     }
   }
@@ -107,18 +130,11 @@ export function MapDialog({
         at: Date.now(),
         tombPresent,
         ...(diedAt ? { diedAt } : {}),
+        ...withPin(),
       })
     ) {
-      notify(t("report.saved"));
-    }
-  }
-
-  async function savePin() {
-    if (!draftPin) return;
-    if (await post("/api/pins", { mapSlug: map.slug, channel, x: draftPin.x, y: draftPin.y })) {
-      notify(t("maps.tomb.saved"));
       setDraftPin(null);
-      setPinMode(false);
+      notify(t("report.saved"));
     }
   }
 
@@ -200,42 +216,26 @@ export function MapDialog({
                 }}
                 timers={timers}
               />
-              <button
-                onClick={() => {
-                  setPinMode((v) => !v);
-                  setDraftPin(null);
-                }}
-                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  pinMode
-                    ? "border-spirit/50 bg-spirit/15 text-spirit"
-                    : "border-edge text-muted hover:text-ink"
-                }`}
-              >
-                <TombIcon />
-                {pinMode ? t("maps.tomb.cancel") : t("maps.tomb.pin")}
-              </button>
+              <span className="flex items-center gap-1.5 text-[11px] text-faint">
+                <TombIcon muted />
+                {t("report.pin.hint")}
+              </span>
             </div>
 
             <Minimap
               map={map}
               pins={channelPins}
               draft={draftPin}
-              pinMode={pinMode}
               onPick={setDraftPin}
-              hint={t("maps.tomb.click")}
             />
 
             <div className="mt-3 space-y-2">
-              {draftPin && (
-                <button
-                  onClick={savePin}
-                  disabled={busy}
-                  className="w-full rounded-lg bg-spirit px-4 py-2.5 text-sm font-bold text-void transition-colors hover:bg-spirit-deep disabled:opacity-50"
-                >
-                  {t("maps.tomb.confirm")}
-                </button>
-              )}
-              {!pinMode && bestPin && (
+              {draftPin ? (
+                <p className="animate-rise flex items-center gap-2 rounded-lg border border-spirit/40 bg-spirit/10 px-3 py-2.5 text-xs font-semibold text-spirit">
+                  <TombIcon />
+                  {t("report.pin.ready")}
+                </p>
+              ) : bestPin ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-imperial/25 bg-imperial/8 px-3 py-2 text-xs">
                   <span className="flex items-center gap-1.5 text-imperial/90">
                     <TombIcon />
@@ -250,8 +250,7 @@ export function MapDialog({
                     +1
                   </button>
                 </div>
-              )}
-              {!pinMode && !bestPin && (
+              ) : (
                 <p className="rounded-lg border border-dashed border-edge px-3 py-2.5 text-xs text-faint">
                   {t("maps.tomb.none")}
                 </p>
@@ -274,6 +273,62 @@ export function MapDialog({
             )}
           </div>
         </div>
+      </div>
+
+      {locked !== null && (
+        <LockNotice unlocksAt={locked} now={now} onClose={() => setLocked(null)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Shown when someone tries to restart a timer inside the guaranteed 60 minutes.
+ * It explains the trade-off rather than just refusing: a key summon really can
+ * make an early report legitimate, but allowing it would hand trolls the board.
+ */
+function LockNotice({
+  unlocksAt,
+  now,
+  onClose,
+}: {
+  unlocksAt: number;
+  now: number;
+  onClose: () => void;
+}) {
+  const { t } = useApp();
+  return (
+    <div
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="alertdialog"
+      aria-modal="true"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div
+        className="animate-rise panel max-w-sm p-5 text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-3 grid size-11 place-items-center rounded-full border border-waiting/40 bg-waiting/12 text-waiting">
+          <svg viewBox="0 0 24 24" className="size-5" fill="none">
+            <rect x="4" y="10.5" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          </svg>
+        </div>
+        <h3 className="text-base font-bold">{t("lock.title")}</h3>
+        <p className="mt-2 text-xs leading-relaxed text-muted">{t("lock.body")}</p>
+        <p className="mt-3 text-xs text-faint">
+          {t("lock.unlocks")}{" "}
+          <Countdown target={unlocksAt} now={now} className="font-bold text-waiting" />
+        </p>
+        <button
+          onClick={onClose}
+          className="mt-4 w-full rounded-xl bg-spirit px-4 py-2.5 text-sm font-bold text-void transition-colors hover:bg-spirit-deep"
+        >
+          {t("lock.ok")}
+        </button>
       </div>
     </div>
   );
@@ -364,20 +419,47 @@ function ChannelStatus({ timer, now }: { timer: ChannelTimer | undefined; now: n
       )}
 
       {timer.lastDeath && (
-        <p className="mt-3 border-t border-edge pt-3 text-[11px] text-faint">
-          {t("timer.lastdeath")}:{" "}
-          <span className="tabular text-muted">
-            {formatClock(timer.lastDeath.diedAt, prefs.tz, prefs.hour12)}
-          </span>
-          {timer.lastDeath.reporter && (
-            <>
-              {" "}
-              {t("timer.by")} <span className="text-muted">{timer.lastDeath.reporter}</span>
-            </>
-          )}
-        </p>
+        <div className="mt-3 border-t border-edge pt-3">
+          <p className="text-[11px] text-faint">
+            {t("timer.lastdeath")}:{" "}
+            <span className="tabular text-muted">
+              {formatClock(timer.lastDeath.diedAt, prefs.tz, prefs.hour12)}
+            </span>
+          </p>
+          <Reporter nick={timer.lastDeath.reporter} points={timer.lastDeath.reporterPoints} />
+        </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Credits the person behind a timer, with the title they earned. Anonymous
+ * reports say so plainly — knowing *who* vouched for a time is most of what
+ * makes a community board trustworthy.
+ */
+function Reporter({ nick, points }: { nick: string | null; points: number | null }) {
+  const { prefs, t } = useApp();
+  if (!nick) {
+    return (
+      <p className="mt-1 text-[11px] text-faint">
+        {t("report.by")}: <span className="italic">{t("identity.anon")}</span>
+      </p>
+    );
+  }
+  const rank = rankFor(points ?? 0, nick);
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
+      <span className="text-faint">{t("report.by")}:</span>
+      <span className="font-bold text-ink">{nick}</span>
+      <span
+        className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+        style={{ color: rank.color, background: `${rank.color}18` }}
+      >
+        {rank[prefs.lang]}
+      </span>
+      <span className="tabular text-faint">Lv {levelFor(points ?? 0)}</span>
+    </p>
   );
 }
 
@@ -571,25 +653,22 @@ function ReportControls({
   );
 }
 
+/** Always armed: one click drops the marker, no mode to enter first. */
 function Minimap({
   map,
   pins,
   draft,
-  pinMode,
   onPick,
-  hint,
 }: {
   map: BossMap;
   pins: Pin[];
   draft: { x: number; y: number } | null;
-  pinMode: boolean;
   onPick: (p: { x: number; y: number }) => void;
-  hint: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
   function handleClick(e: React.MouseEvent) {
-    if (!pinMode || !ref.current) return;
+    if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();
     onPick({
       x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
@@ -601,9 +680,7 @@ function Minimap({
     <div
       ref={ref}
       onClick={handleClick}
-      className={`relative aspect-square w-full overflow-hidden rounded-xl border border-edge bg-abyss ${
-        pinMode ? "cursor-crosshair ring-2 ring-spirit/60" : ""
-      }`}
+      className="relative aspect-square w-full cursor-crosshair overflow-hidden rounded-xl border border-edge bg-abyss transition-shadow hover:ring-2 hover:ring-spirit/40"
     >
       <Image
         src={minimapUrl(map.slug)}
@@ -613,16 +690,12 @@ function Minimap({
         className="object-cover"
       />
 
-      {pins.map((p, i) => (
-        <TombMarker key={p.id} x={p.x} y={p.y} primary={i === 0} votes={p.votes} />
+      {/* The saved pin stays visible while a new one is being placed, so you
+          can see exactly what you are about to move. */}
+      {pins.map((p) => (
+        <TombMarker key={p.id} x={p.x} y={p.y} primary={!draft} votes={p.votes} />
       ))}
       {draft && <TombMarker x={draft.x} y={draft.y} primary draft />}
-
-      {pinMode && !draft && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-3 text-center text-xs font-semibold text-spirit">
-          {hint}
-        </div>
-      )}
     </div>
   );
 }

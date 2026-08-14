@@ -11,7 +11,7 @@ export async function GET() {
       points: u.points,
       reports: u.reports,
       level: levelFor(u.points),
-      rank: rankFor(u.points),
+      rank: rankFor(u.points, u.nick),
     }));
     return NextResponse.json({ leaderboard: rows }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {

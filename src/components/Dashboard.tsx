@@ -29,20 +29,23 @@ export function Dashboard() {
   );
 
   /**
-   * "Em tempo" counts channels that are actionable this minute — in the random
-   * window or confirmed alive. Recomputed per minute so the header does not
-   * re-render every second.
+   * Two live counters that mirror the two halves of the respawn cycle:
+   * "registrados" are still inside the guaranteed 60 minutes, "em tempo" are
+   * in the 30-minute window (or confirmed up). Recomputed per minute so the
+   * header does not re-render every second.
    */
   const minuteBucket = Math.floor(now / 60_000);
   const heroStats = useMemo(() => {
     if (!payload) return null;
+    let registered = 0;
     let inWindow = 0;
     for (const list of Object.values(timers)) {
       for (const timer of list) {
-        if (timer.state === "window" || timer.state === "alive") inWindow++;
+        if (timer.state === "waiting") registered++;
+        else if (timer.state === "window" || timer.state === "alive") inWindow++;
       }
     }
-    return { deaths: payload.stats.deaths, inWindow, users: payload.stats.users };
+    return { registered, inWindow, users: payload.stats.users };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payload, minuteBucket]);
 

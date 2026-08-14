@@ -1,0 +1,18 @@
+# Pasta de entrega das imagens. A cópia que o site serve é public/minimaps/.
+/minimaps/
+
+node_modules/
+.next/
+out/
+build/
+.env
+.env.local
+.env*.local
+data/
+*.db
+*.db-shm
+*.db-wal
+next-env.d.ts
+tsconfig.tsbuildinfo
+.DS_Store
+Thumbs.db

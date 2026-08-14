@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces — a true black base so the minimaps carry all the colour. */
+  --color-void: #06060a;
+  --color-abyss: #0b0b11;
+  --color-surface: #111119;
+  --color-raised: #171722;
+  --color-edge: #23232f;
+  --color-edge-strong: #34344a;
+
+  --color-ink: #f2f2f7;
+  --color-muted: #a1a1b5;
+  --color-faint: #6b6b80;
+
+  /* Spirit palette */
+  --color-spirit: #5eead4;
+  --color-spirit-deep: #14b8a6;
+  --color-arcane: #a78bfa;
+  --color-imperial: #fbbf24;
+
+  /* Timer states */
+  --color-alive: #34d399;
+  --color-window: #fbbf24;
+  --color-waiting: #60a5fa;
+  --color-overdue: #f87171;
+  --color-stale: #71717a;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono",
+    Menlo, Consolas, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-edge);
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-void);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  /* Ambient spirit glow behind the whole page. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(60rem 40rem at 12% -10%, rgb(94 234 212 / 0.07), transparent 60%),
+      radial-gradient(50rem 35rem at 92% 4%, rgb(167 139 250 / 0.07), transparent 60%);
+  }
+
+  ::selection {
+    background: rgb(94 234 212 / 0.28);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-spirit);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  input,
+  select,
+  button,
+  textarea {
+    font: inherit;
+  }
+
+  /* Slim scrollbars that do not fight the dark theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-edge-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  .panel {
+    background: linear-gradient(
+      180deg,
+      rgb(23 23 34 / 0.85) 0%,
+      rgb(17 17 25 / 0.85) 100%
+    );
+    border: 1px solid var(--color-edge);
+    border-radius: 1rem;
+    backdrop-filter: blur(12px);
+  }
+
+  .panel-flat {
+    background: var(--color-surface);
+    border: 1px solid var(--color-edge);
+    border-radius: 0.875rem;
+  }
+
+  .hairline {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-edge-strong),
+      transparent
+    );
+    height: 1px;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+
+  /* The amber "it can pop any second now" heartbeat. */
+  .pulse-window {
+    animation: pulse-window 2.4s ease-in-out infinite;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}
+
+@keyframes pulse-window {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(251 191 36 / 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(251 191 36 / 0);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.28s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

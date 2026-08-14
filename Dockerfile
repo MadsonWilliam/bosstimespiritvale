@@ -1,16 +1,12 @@
-# bookworm (glibc), not alpine: better-sqlite3 ships prebuilt glibc binaries,
-# so the usual case needs no compiler at all.
+# bookworm (glibc), not alpine: better-sqlite3 publishes prebuilt glibc
+# binaries, so this image needs no compiler toolchain at all. Verified on the
+# deploy host — `npm ci` resolves better-sqlite3 from its prebuild in ~12s.
 FROM node:22-bookworm-slim AS base
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # ---------------------------------------------------------------- deps
 FROM base AS deps
 WORKDIR /app
-# python3/make/g++ are the fallback for when no prebuilt binary matches the
-# Node ABI and better-sqlite3 has to compile itself.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
- && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
 RUN npm ci
 

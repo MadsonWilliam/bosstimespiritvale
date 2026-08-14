@@ -95,6 +95,15 @@ export function Providers({ children }: { children: ReactNode }) {
   const setPrefs = useCallback((patch: Partial<Prefs>) => {
     setPrefsState((prev) => {
       const next = { ...prev, ...patch };
+
+      // SA is the Brazilian community's server; every other region reads in
+      // English. Picking a server therefore picks the language, unless the
+      // visitor is explicitly changing the language in the same action — then
+      // their choice wins and sticks until they switch servers again.
+      if (patch.server !== undefined && patch.lang === undefined) {
+        next.lang = patch.server === "SA" ? "pt" : "en";
+      }
+
       try {
         localStorage.setItem(PREFS_KEY, JSON.stringify(next));
       } catch {

@@ -231,10 +231,18 @@ export function MapDialog({
 
             <div className="mt-3 space-y-2">
               {draftPin ? (
-                <p className="animate-rise flex items-center gap-2 rounded-lg border border-spirit/40 bg-spirit/10 px-3 py-2.5 text-xs font-semibold text-spirit">
+                <div className="animate-rise flex items-center gap-2 rounded-lg border border-spirit/40 bg-spirit/10 px-3 py-2 text-xs font-semibold text-spirit">
                   <TombIcon />
-                  {t("report.pin.ready")}
-                </p>
+                  <span className="min-w-0 flex-1">{t("report.pin.ready")}</span>
+                  {/* Placing the marker is a single click, so undoing it has to
+                      be one too — most drafts are someone testing the map. */}
+                  <button
+                    onClick={() => setDraftPin(null)}
+                    className="shrink-0 rounded-md border border-edge-strong px-2.5 py-1 font-semibold text-muted transition-colors hover:border-overdue/50 hover:text-overdue"
+                  >
+                    {t("maps.tomb.cancel")}
+                  </button>
+                </div>
               ) : bestPin ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-imperial/25 bg-imperial/8 px-3 py-2 text-xs">
                   <span className="flex items-center gap-1.5 text-imperial/90">

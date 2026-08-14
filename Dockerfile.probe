@@ -1,0 +1,6 @@
+# Diagnostic only — not used by the app.
+# Isolates "can this server pull the base image at all?" from everything else
+# in the real Dockerfile. Delete once the build pipeline is understood.
+FROM node:22-bookworm-slim
+RUN node -e "console.log('base image ok', process.version)"
+CMD ["node", "-e", "require('http').createServer((_,r)=>r.end('probe')).listen(3000)"]

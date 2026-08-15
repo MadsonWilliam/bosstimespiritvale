@@ -3,12 +3,11 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import { useApp } from "@/components/Providers";
-import { ELEMENTS, minimapUrl, type Channel } from "@/data/game";
+import { ELEMENTS, minimapUrl, type BossMap, type Channel } from "@/data/game";
 import { planRoute } from "@/lib/route";
 import type { ChannelTimer } from "@/lib/timers";
 import { formatClock } from "@/lib/time-input";
 import { ChanceBar, Countdown, Section, StateBadge, STATE_STYLE, TombBadge } from "@/components/ui";
-import type { BossMap } from "@/data/game";
 
 export function RouteSection({
   timers,
@@ -24,12 +23,13 @@ export function RouteSection({
   const { prefs, t } = useApp();
   const [maxStops, setMaxStops] = useState(6);
 
-  // Replanned once a minute, not every tick: the ordering is stable at that
-  // resolution and recomputing per second makes the list twitch.
-  const minuteBucket = Math.floor(now / 60_000);
+  // Replanned every 10 seconds. Often enough that a fresh report reshuffles
+  // the plan while you are still looking at it, coarse enough that the list
+  // does not twitch on every tick.
+  const tick = Math.floor(now / 10_000);
   const stops = useMemo(
-    () => planRoute({ timers, maxStops, now: minuteBucket * 60_000 }),
-    [timers, maxStops, minuteBucket],
+    () => planRoute({ timers, maxStops, now: tick * 10_000 }),
+    [timers, maxStops, tick],
   );
 
   return (
@@ -73,34 +73,41 @@ export function RouteSection({
               );
 
               return (
-                <li key={stop.map.slug} className="relative">
+                <li
+                  key={stop.map.slug}
+                  className="panel-flat relative flex items-start gap-3 p-3 transition-colors hover:border-edge-strong sm:gap-4 sm:p-4"
+                  style={{ borderLeftColor: style.border, borderLeftWidth: 3 }}
+                >
+                  <span
+                    className="tabular relative z-10 mt-0.5 grid size-9 shrink-0 place-items-center rounded-full border-2 text-sm font-black"
+                    style={{
+                      borderColor: style.border,
+                      background: style.bg,
+                      color: style.color,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+
                   <button
                     onClick={() => onOpen(stop.map, stop.leadChannel as Channel)}
-                    className="panel-flat flex w-full items-start gap-3 p-3 text-left transition-colors hover:border-edge-strong sm:gap-4 sm:p-4"
-                    style={{ borderLeftColor: style.border, borderLeftWidth: 3 }}
+                    className="relative mt-0.5 hidden size-14 shrink-0 overflow-hidden rounded-lg border border-edge sm:block"
+                    aria-label={stop.map.name}
                   >
-                    <span
-                      className="tabular relative z-10 mt-0.5 grid size-9 shrink-0 place-items-center rounded-full border-2 text-sm font-black"
-                      style={{
-                        borderColor: style.border,
-                        background: style.bg,
-                        color: style.color,
-                      }}
+                    <Image
+                      src={minimapUrl(stop.map.slug)}
+                      alt=""
+                      fill
+                      sizes="56px"
+                      className="object-cover opacity-80"
+                    />
+                  </button>
+
+                  <div className="min-w-0 flex-1">
+                    <button
+                      onClick={() => onOpen(stop.map, stop.leadChannel as Channel)}
+                      className="block w-full text-left"
                     >
-                      {i + 1}
-                    </span>
-
-                    <span className="relative mt-0.5 hidden size-14 shrink-0 overflow-hidden rounded-lg border border-edge sm:block">
-                      <Image
-                        src={minimapUrl(stop.map.slug)}
-                        alt=""
-                        fill
-                        sizes="56px"
-                        className="object-cover opacity-80"
-                      />
-                    </span>
-
-                    <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="truncate text-sm font-bold text-ink">
                           {stop.map.name}
@@ -116,8 +123,8 @@ export function RouteSection({
                       </span>
 
                       {/* The one line that decides whether this stop is worth
-                          walking to: what it will be doing on arrival, and the
-                          single clock that matters for it. */}
+                          walking to: what it is doing, and the single clock
+                          that matters for it. */}
                       <span
                         className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2 py-1.5"
                         style={{ borderColor: style.border, background: style.bg }}
@@ -132,7 +139,6 @@ export function RouteSection({
                             {t("route.closesin")} <Countdown target={stop.closesAt} now={now} />
                           </span>
                         ) : null}
-                        {/* Only worth saying when it differs from the state now. */}
                         {stop.stateAtArrival !== stop.stateNow && (
                           <span className="text-[11px] text-muted">
                             → {t(`route.at.${stop.stateAtArrival}`)}
@@ -161,38 +167,41 @@ export function RouteSection({
                         )}
                         <TombBadge pinned={anyPinned} t={t} />
                       </span>
+                    </button>
 
-                      <span className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {stop.channels
-                          .filter((c) => c.chance > 0.02)
-                          .map((c) => {
-                            const cs = STATE_STYLE[c.state];
-                            return (
-                              <span
-                                key={c.channel}
-                                className="tabular rounded border px-1.5 py-0.5 text-[10px] font-semibold"
-                                style={{
-                                  color: cs.color,
-                                  background: cs.bg,
-                                  borderColor: cs.border,
-                                }}
-                                title={t(`state.${c.state}.desc`)}
-                              >
-                                {t("route.check")}
-                                {c.channel} · {Math.round(c.chance * 100)}%
-                              </span>
-                            );
-                          })}
-                      </span>
-                    </span>
+                    {/* Separate buttons, outside the main one: each chip jumps
+                        straight into that channel. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {stop.channels
+                        .filter((c) => c.chance > 0.02)
+                        .map((c) => {
+                          const cs = STATE_STYLE[c.state];
+                          return (
+                            <button
+                              key={c.channel}
+                              onClick={() => onOpen(stop.map, c.channel as Channel)}
+                              className="tabular rounded border px-1.5 py-0.5 text-[10px] font-semibold transition-transform hover:scale-105"
+                              style={{
+                                color: cs.color,
+                                background: cs.bg,
+                                borderColor: cs.border,
+                              }}
+                              title={t(`state.${c.state}.desc`)}
+                            >
+                              {t("route.check")}
+                              {c.channel} · {Math.round(c.chance * 100)}%
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
 
-                    <span className="w-20 shrink-0 sm:w-32">
-                      <ChanceBar value={stop.chance} />
-                      <span className="mt-1 block text-right text-[10px] uppercase leading-tight tracking-wider text-faint">
-                        {t("route.chance")}
-                      </span>
+                  <div className="w-20 shrink-0 sm:w-32">
+                    <ChanceBar value={stop.chance} />
+                    <span className="mt-1 block text-right text-[10px] uppercase leading-tight tracking-wider text-faint">
+                      {t("route.chance")}
                     </span>
-                  </button>
+                  </div>
                 </li>
               );
             })}

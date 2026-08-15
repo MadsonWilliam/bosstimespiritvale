@@ -24,8 +24,17 @@ import {
   type ChannelTimer,
 } from "@/lib/timers";
 
-/** Minutes to reach and clear a difficulty-1.0 map, travel plus the fight. */
-const MINUTES_PER_STOP = 7;
+/**
+ * Minutes between stops: a flat base plus a small allowance for how awkward
+ * the map is. Kept deliberately close to flat — when travel scaled with the
+ * full difficulty value, a 1.6 map cost 11 minutes and its window had closed
+ * before you could arrive, so good targets silently vanished from the route.
+ */
+const BASE_MINUTES_PER_STOP = 4;
+const DIFFICULTY_TRAVEL_MINUTES = 3;
+
+const travelMinutes = (difficulty: number) =>
+  BASE_MINUTES_PER_STOP + (difficulty - 1) * DIFFICULTY_TRAVEL_MINUTES;
 
 /**
  * Most a full point of difficulty may shift the ranking, in minutes. Small on
@@ -101,7 +110,7 @@ export function planRoute({
 
     for (let i = 0; i < remaining.length; i++) {
       const candidate = remaining[i];
-      const arrivesAt = clock + candidate.difficulty * MINUTES_PER_STOP * MS_PER_MIN;
+      const arrivesAt = clock + travelMinutes(candidate.difficulty) * MS_PER_MIN;
       const list = timers[candidate.slug] ?? [];
 
       // Judge the map by its most promising *routable* channel. Filtering has
@@ -123,17 +132,19 @@ export function planRoute({
       const nudge = (candidate.difficulty - 1) * DIFFICULTY_TIEBREAK_MINUTES;
 
       /*
-       * Tier 0 — up or in the window: the odds decide, and difficulty is worth
-       *   at most a couple of percentage points of them.
-       * Tier 1 — still inside the guaranteed 60 minutes: nothing to fight yet,
-       *   so rank by how long you would stand around waiting, plus at most
-       *   DIFFICULTY_TIEBREAK_MINUTES for a painful map. Negated so that, like
-       *   tier 0, higher is better.
+       * The odds on arrival decide, in both tiers. A channel that is still
+       * counting down now but will be open by the time you walk in already has
+       * a real chance, and ranking those by "minutes left on the clock" got it
+       * badly wrong: that measure ignores any channel that will have opened,
+       * so a map was judged by its worst channel instead of its best.
+       *
+       * Only when nothing will be open on arrival does the wait time decide,
+       * scaled down so it always sorts below a genuine chance.
        */
       const score =
-        tier === 0
+        chance > 0
           ? chance - nudge * 0.004
-          : -(minutesUntilOpen(list, arrivesAt) + nudge);
+          : -(minutesUntilOpen(list, arrivesAt) + nudge) / 10_000;
 
       const better =
         !best || tier < best.tier || (tier === best.tier && score > best.score);

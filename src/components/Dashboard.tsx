@@ -27,19 +27,38 @@ export function Dashboard() {
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [rankKey, setRankKey] = useState(0);
 
-  /** `${slug}:${channel}` for every channel whose tombstone has been pinned. */
-  const pinnedChannels = useMemo(
-    () => new Set((payload?.pins ?? []).map((p) => `${p.map_slug}:${p.channel}`)),
-    [payload],
-  );
+  /** Coarse clock for the derived counters, so they do not churn every second. */
+  const minuteBucket = Math.floor(now / 60_000);
+
+  /**
+   * Channels whose tombstone mark still counts. A pin belongs to the cycle it
+   * was reported in: once a channel's timer runs out with nobody updating it,
+   * the mark stops being treated as current and the site asks for it again on
+   * the next kill. The coordinates are kept — only the "confirmed" status
+   * lapses — so nobody's work is thrown away.
+   */
+  const pinnedChannels = useMemo(() => {
+    const live = new Set<string>();
+    for (const [slug, list] of Object.entries(timers)) {
+      for (const timer of list) {
+        if (timer.state !== "stale" && timer.state !== "unknown") {
+          live.add(`${slug}:${timer.channel}`);
+        }
+      }
+    }
+    return new Set(
+      (payload?.pins ?? [])
+        .map((p) => `${p.map_slug}:${p.channel}`)
+        .filter((key) => live.has(key)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload, minuteBucket]);
 
   /**
    * Two live counters that mirror the two halves of the respawn cycle:
    * "registrados" are still inside the guaranteed 60 minutes, "em tempo" are
-   * in the 30-minute window (or confirmed up). Recomputed per minute so the
-   * header does not re-render every second.
+   * in the 30-minute window (or confirmed up).
    */
-  const minuteBucket = Math.floor(now / 60_000);
   const heroStats = useMemo(() => {
     if (!payload) return null;
     let registered = 0;

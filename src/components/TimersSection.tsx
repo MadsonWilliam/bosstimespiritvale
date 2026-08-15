@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useApp } from "@/components/Providers";
-import { ELEMENTS, MAP_BY_SLUG, type BossMap } from "@/data/game";
+import { ELEMENTS, MAP_BY_SLUG, type BossMap, type Channel } from "@/data/game";
 import { compareTimers, type BossState, type ChannelTimer } from "@/lib/timers";
 import { formatClock } from "@/lib/time-input";
 import { Countdown, Section, StateBadge, TimerProgress, TombBadge } from "@/components/ui";
@@ -22,7 +22,7 @@ export function TimersSection({
   /** Set of `${slug}:${channel}` that have a tombstone pin. */
   pinnedChannels: Set<string>;
   now: number;
-  onOpen: (map: BossMap) => void;
+  onOpen: (map: BossMap, channel?: Channel) => void;
 }) {
   const { t } = useApp();
   const [showAll, setShowAll] = useState(false);
@@ -88,7 +88,7 @@ function TimerRow({
   timer: ChannelTimer;
   pinned: boolean;
   now: number;
-  onOpen: (m: BossMap) => void;
+  onOpen: (m: BossMap, channel?: Channel) => void;
 }) {
   const { prefs, t } = useApp();
   const el = map.boss ? ELEMENTS[map.boss.element] : null;
@@ -99,7 +99,7 @@ function TimerRow({
   return (
     <li>
       <button
-        onClick={() => onOpen(map)}
+        onClick={() => onOpen(map, timer.channel)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03] sm:gap-4 sm:px-5"
       >
         <span className="tabular grid size-9 shrink-0 place-items-center rounded-lg border border-edge bg-abyss text-xs font-bold text-muted">

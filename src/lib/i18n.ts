@@ -159,12 +159,17 @@ const pt: Dict = {
     "Sem timers suficientes para montar uma rota. Reporte algumas mortes primeiro.",
   "route.check": "ch",
   "route.legend":
-    "Ao chegar: azul = ainda nos 60 min garantidos · âmbar = já na janela de 30 min · verde = boss confirmado vivo.",
+    "Cor pelo estado na sua chegada: âmbar = já na janela de 30 min (prioridade) · azul = ainda nos 60 min garantidos, é o próximo da fila · verde = boss confirmado vivo. Boss morto não entra na rota.",
   "route.at.waiting": "ainda nos 60 min",
   "route.at.window": "na janela dos 30 min",
   "route.at.alive": "vivo",
   "route.at.overdue": "janela já vencida",
   "route.window": "janela",
+  "route.opensin": "nasce em",
+  "route.closesin": "fecha em",
+  "route.peak": "ápice",
+  "route.peak.hint":
+    "Melhor momento para chegar: metade da janela de 30 min, quando ele quase certamente ja nasceu e ainda ninguem matou.",
 
   "rank.title": "Ranking imperial",
   "rank.subtitle":
@@ -348,12 +353,17 @@ const en: Dict = {
     "Not enough timers to build a route. Report a few kills first.",
   "route.check": "ch",
   "route.legend":
-    "On arrival: blue = still in the guaranteed 60 min · amber = already in the 30 min window · green = confirmed alive.",
+    "Colour is the state on arrival: amber = already in the 30 min window (go first) · blue = still in the guaranteed 60 min, that is your next stop · green = confirmed alive. Dead bosses never make the route.",
   "route.at.waiting": "still in the 60 min",
   "route.at.window": "in the 30 min window",
   "route.at.alive": "alive",
   "route.at.overdue": "window already closed",
   "route.window": "window",
+  "route.opensin": "spawns in",
+  "route.closesin": "closes in",
+  "route.peak": "peak",
+  "route.peak.hint":
+    "Best moment to arrive: halfway through the 30 min window, when it has almost certainly popped and nobody has cleared it yet.",
 
   "rank.title": "Imperial ranking",
   "rank.subtitle":

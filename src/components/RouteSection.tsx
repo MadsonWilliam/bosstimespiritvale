@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Image from "next/image";
 import { useApp } from "@/components/Providers";
-import { ELEMENTS, minimapUrl } from "@/data/game";
+import { ELEMENTS, minimapUrl, type Channel } from "@/data/game";
 import { planRoute } from "@/lib/route";
 import type { ChannelTimer } from "@/lib/timers";
 import { formatClock } from "@/lib/time-input";
@@ -19,7 +19,7 @@ export function RouteSection({
   timers: Record<string, ChannelTimer[]>;
   pinnedChannels: Set<string>;
   now: number;
-  onOpen: (map: BossMap) => void;
+  onOpen: (map: BossMap, channel?: Channel) => void;
 }) {
   const { prefs, t } = useApp();
   const [maxStops, setMaxStops] = useState(6);
@@ -66,7 +66,8 @@ export function RouteSection({
           <ol className="relative space-y-3 before:absolute before:bottom-8 before:left-[1.4rem] before:top-8 before:w-px before:bg-gradient-to-b before:from-spirit/40 before:via-edge-strong before:to-transparent">
             {stops.map((stop, i) => {
               const el = stop.map.boss ? ELEMENTS[stop.map.boss.element] : null;
-              const style = STATE_STYLE[stop.stateAtArrival];
+              // Coloured by what it is doing now, matching the timer board.
+              const style = STATE_STYLE[stop.stateNow];
               const anyPinned = stop.channels.some((c) =>
                 pinnedChannels.has(`${stop.map.slug}:${c.channel}`),
               );
@@ -74,7 +75,7 @@ export function RouteSection({
               return (
                 <li key={stop.map.slug} className="relative">
                   <button
-                    onClick={() => onOpen(stop.map)}
+                    onClick={() => onOpen(stop.map, stop.leadChannel as Channel)}
                     className="panel-flat flex w-full items-start gap-3 p-3 text-left transition-colors hover:border-edge-strong sm:gap-4 sm:p-4"
                     style={{ borderLeftColor: style.border, borderLeftWidth: 3 }}
                   >
@@ -114,13 +115,29 @@ export function RouteSection({
                         )}
                       </span>
 
-                      {/* What it will be doing when you get there — the whole
-                          point of the section, so it gets its own line. */}
-                      <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <StateBadge state={stop.stateAtArrival} t={t} size="xs" />
-                        <span className="text-[11px] font-medium" style={{ color: style.color }}>
-                          {t(`route.at.${stop.stateAtArrival}`)}
-                        </span>
+                      {/* The one line that decides whether this stop is worth
+                          walking to: what it will be doing on arrival, and the
+                          single clock that matters for it. */}
+                      <span
+                        className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2 py-1.5"
+                        style={{ borderColor: style.border, background: style.bg }}
+                      >
+                        <StateBadge state={stop.stateNow} t={t} size="xs" />
+                        {stop.stateNow === "waiting" && stop.opensAt !== null ? (
+                          <span className="text-[11px] font-bold" style={{ color: style.color }}>
+                            {t("route.opensin")} <Countdown target={stop.opensAt} now={now} />
+                          </span>
+                        ) : stop.closesAt !== null ? (
+                          <span className="text-[11px] font-bold" style={{ color: style.color }}>
+                            {t("route.closesin")} <Countdown target={stop.closesAt} now={now} />
+                          </span>
+                        ) : null}
+                        {/* Only worth saying when it differs from the state now. */}
+                        {stop.stateAtArrival !== stop.stateNow && (
+                          <span className="text-[11px] text-muted">
+                            → {t(`route.at.${stop.stateAtArrival}`)}
+                          </span>
+                        )}
                       </span>
 
                       <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-faint">
@@ -134,11 +151,12 @@ export function RouteSection({
                             (<Countdown target={stop.arrivesAt} now={now} />)
                           </span>
                         </span>
-                        {stop.opensAt !== null && stop.closesAt !== null && (
-                          <span className="tabular">
-                            {t("route.window")} {formatClock(stop.opensAt, prefs.tz, prefs.hour12)}
-                            {" → "}
-                            {formatClock(stop.closesAt, prefs.tz, prefs.hour12)}
+                        {stop.peakAt !== null && (
+                          <span className="tabular" title={t("route.peak.hint")}>
+                            {t("route.peak")}{" "}
+                            <span className="text-muted">
+                              {formatClock(stop.peakAt, prefs.tz, prefs.hour12)}
+                            </span>
                           </span>
                         )}
                         <TombBadge pinned={anyPinned} t={t} />

@@ -17,6 +17,7 @@ export function MapDialog({
   timers,
   pins,
   now,
+  initialChannel = 1,
   onClose,
   onReported,
   notify,
@@ -25,12 +26,18 @@ export function MapDialog({
   timers: ChannelTimer[];
   pins: Pin[];
   now: number;
+  /**
+   * Channel to land on. Opening from a specific row — a timer line, a route
+   * stop — should put you on that exact channel; only the map grid, which is
+   * about the map as a whole, falls back to 1.
+   */
+  initialChannel?: Channel;
   onClose: () => void;
   onReported: () => void;
   notify: (msg: string, tone?: "ok" | "error") => void;
 }) {
   const { prefs, identity, setIdentity, t } = useApp();
-  const [channel, setChannel] = useState<Channel>(1);
+  const [channel, setChannel] = useState<Channel>(initialChannel);
   const [draftPin, setDraftPin] = useState<{ x: number; y: number } | null>(null);
   const [busy, setBusy] = useState(false);
   /** Set when the API refuses a change inside the guaranteed 60 minutes. */

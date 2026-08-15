@@ -10,6 +10,7 @@ import {
   TOTAL_MAPS,
   minimapUrl,
   type BossMap,
+  type Channel,
 } from "@/data/game";
 import type { ChannelTimer } from "@/lib/timers";
 import { compareTimers } from "@/lib/timers";
@@ -24,7 +25,7 @@ export function MapsSection({
 }: {
   timers: Record<string, ChannelTimer[]>;
   now: number;
-  onOpen: (map: BossMap) => void;
+  onOpen: (map: BossMap, channel?: Channel) => void;
 }) {
   const { prefs, t } = useApp();
   const [query, setQuery] = useState("");
@@ -100,7 +101,7 @@ function MapCard({
   map: BossMap;
   timers: ChannelTimer[];
   now: number;
-  onOpen: (m: BossMap) => void;
+  onOpen: (m: BossMap, channel?: Channel) => void;
 }) {
   const { prefs, t } = useApp();
   const el = map.boss ? ELEMENTS[map.boss.element] : null;

@@ -5,17 +5,34 @@
  * still be up when I actually get there". So every candidate is scored at its
  * projected arrival time, walking the route forward one stop at a time.
  *
- * There is no reliable map-to-map distance in SpiritVale — some maps have a
- * warp, some do not, and sizes vary wildly. So travel is modelled with a
- * per-map `difficulty` from 1 (trivial) to 2 (long trek), which the community
- * calibrates by hand. That is honest about what we can and cannot measure.
+ * Two things drive the order, in this priority:
+ *
+ *   1. Time. A boss deep into its 30-minute window beats everything else, and
+ *      one that has not opened yet is a "go there next", not a "go there now".
+ *   2. Difficulty, as a light tiebreak only. There is no reliable map-to-map
+ *      distance in SpiritVale — some maps have a warp, some do not — so each
+ *      map carries a hand-calibrated 1..2 effort value. It nudges near-ties and
+ *      is never allowed to outrank the clock.
  */
 
 import { BOSS_MAPS, type BossMap } from "@/data/game";
-import { channelChanceAt, mapChanceAt, type BossState, type ChannelTimer } from "@/lib/timers";
+import {
+  channelChanceAt,
+  mapChanceAt,
+  peakAt,
+  type BossState,
+  type ChannelTimer,
+} from "@/lib/timers";
 
 /** Minutes to reach and clear a difficulty-1.0 map, travel plus the fight. */
 const MINUTES_PER_STOP = 7;
+
+/**
+ * Most a full point of difficulty may shift the ranking, in minutes. Small on
+ * purpose: it separates two targets that are otherwise close in time and
+ * nothing more.
+ */
+const DIFFICULTY_TIEBREAK_MINUTES = 6;
 
 const MS_PER_MIN = 60 * 1000;
 
@@ -25,20 +42,26 @@ export type RouteStop = {
   arrivesAt: number;
   /** 0..1 chance at least one channel has a boss up on arrival. */
   chance: number;
-  /** What the best channel will be doing when you get there. */
+  /**
+   * What the lead channel is doing *right now*. Drives the colour and the
+   * badge, so a stop reads the same here as it does on the timer board — a
+   * map still inside its 60 minutes is blue in both places.
+   */
+  stateNow: BossState;
+  /** What that channel will be doing when you get there. */
   stateAtArrival: BossState;
-  /** Earliest/latest spawn of the channel that drives this stop. */
+  /** The channel that made this stop worth taking. */
+  leadChannel: number;
   opensAt: number | null;
   closesAt: number | null;
-  /** Channels worth checking, best first. */
+  /** When this stop is at its best — the moment to aim for. */
+  peakAt: number | null;
   channels: { channel: number; chance: number; state: BossState }[];
 };
 
 export type RouteInput = {
-  /** Per-map channel timers, keyed by map slug. */
   timers: Record<string, ChannelTimer[]>;
   maxStops?: number;
-  /** Only consider these slugs. */
   only?: string[] | null;
   now?: number;
 };
@@ -78,34 +101,39 @@ export function planRoute({
 
     for (let i = 0; i < remaining.length; i++) {
       const candidate = remaining[i];
-      const travelMs = candidate.difficulty * MINUTES_PER_STOP * MS_PER_MIN;
-      const arrivesAt = clock + travelMs;
+      const arrivesAt = clock + candidate.difficulty * MINUTES_PER_STOP * MS_PER_MIN;
       const list = timers[candidate.slug] ?? [];
 
       // Judge the map by its most promising *routable* channel. Filtering has
       // to happen before ranking: an unreported channel is not tier 0, it is
       // no channel at all, and letting it lead would drop the whole map.
-      const leadState = list
-        .map((t) => stateAt(t, arrivesAt))
-        .filter((s) => ROUTABLE.includes(s))
-        .sort((a, b) => tierOf(a) - tierOf(b))[0];
-      if (!leadState) continue;
+      // Only channels you could still catch count — but the priority tier is
+      // decided by what they are doing *now*, so "already in the 30-minute
+      // window" outranks "still counting down", which is how a player reads
+      // the board.
+      const catchable = list.filter((t) => ROUTABLE.includes(stateAt(t, arrivesAt)));
+      if (catchable.length === 0) continue;
 
-      const tier = tierOf(leadState);
+      const leadNow = catchable
+        .map((t) => t.state)
+        .sort((a, b) => tierOf(a) - tierOf(b))[0];
+
+      const tier = tierOf(leadNow);
       const chance = mapChanceAt(list, arrivesAt);
+      const nudge = (candidate.difficulty - 1) * DIFFICULTY_TIEBREAK_MINUTES;
 
       /*
-       * Tier 0 — already up or in the window: go for the best odds, discounted
-       *   by how painful the map is to run.
+       * Tier 0 — up or in the window: the odds decide, and difficulty is worth
+       *   at most a couple of percentage points of them.
        * Tier 1 — still inside the guaranteed 60 minutes: nothing to fight yet,
-       *   so the question is only "which is cheapest to be standing at when it
-       *   pops". Waiting minutes multiplied by difficulty, lowest wins: a 14
-       *   min wait on an easy map beats a 10 min wait on a hard one.
+       *   so rank by how long you would stand around waiting, plus at most
+       *   DIFFICULTY_TIEBREAK_MINUTES for a painful map. Negated so that, like
+       *   tier 0, higher is better.
        */
       const score =
         tier === 0
-          ? chance / candidate.difficulty
-          : -minutesUntilOpen(list, arrivesAt) * candidate.difficulty;
+          ? chance - nudge * 0.004
+          : -(minutesUntilOpen(list, arrivesAt) + nudge);
 
       const better =
         !best || tier < best.tier || (tier === best.tier && score > best.score);
@@ -123,11 +151,12 @@ export function planRoute({
         timer: t,
         channel: t.channel,
         chance: channelChanceAt(t, arrivesAt),
+        stateNow: t.state,
         state: stateAt(t, arrivesAt),
       }))
       .filter((c) => ROUTABLE.includes(c.state))
       // Ready-to-fight channels first, then the ones still counting down.
-      .sort((a, b) => tierOf(a.state) - tierOf(b.state) || b.chance - a.chance);
+      .sort((a, b) => tierOf(a.stateNow) - tierOf(b.stateNow) || b.chance - a.chance);
 
     const lead = channels[0];
 
@@ -135,10 +164,17 @@ export function planRoute({
       map,
       arrivesAt,
       chance: best.chance,
+      stateNow: lead?.stateNow ?? "unknown",
       stateAtArrival: lead?.state ?? "unknown",
+      leadChannel: lead?.channel ?? 1,
       opensAt: lead?.timer.opensAt ?? null,
       closesAt: lead?.timer.closesAt ?? null,
-      channels: channels.map(({ channel, chance, state }) => ({ channel, chance, state })),
+      peakAt: lead ? peakAt(lead.timer) : null,
+      channels: channels.map(({ channel, chance, stateNow }) => ({
+        channel,
+        chance,
+        state: stateNow,
+      })),
     });
 
     clock = arrivesAt;

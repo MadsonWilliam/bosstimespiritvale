@@ -10,7 +10,7 @@ import { RouteSection } from "@/components/RouteSection";
 import { RankingSection } from "@/components/RankingSection";
 import { MapDialog } from "@/components/MapDialog";
 import { Spinner, Toast, useNow } from "@/components/ui";
-import type { BossMap } from "@/data/game";
+import type { BossMap, Channel } from "@/data/game";
 
 export function Dashboard() {
   const { prefs, hydrating, t } = useApp();
@@ -18,7 +18,12 @@ export function Dashboard() {
   const { payload, loading, error, refresh } = useServerState(prefs.server);
   const timers = useTimers(payload, now);
 
-  const [openMap, setOpenMap] = useState<BossMap | null>(null);
+  /** Which map the dialog shows, and which channel it lands on. */
+  const [openMap, setOpenMap] = useState<{ map: BossMap; channel: Channel } | null>(null);
+  const openAt = useCallback(
+    (map: BossMap, channel: Channel = 1) => setOpenMap({ map, channel }),
+    [],
+  );
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [rankKey, setRankKey] = useState(0);
 
@@ -83,26 +88,27 @@ export function Dashboard() {
           </div>
         )}
 
-        <MapsSection timers={timers} now={now} onOpen={setOpenMap} />
+        <MapsSection timers={timers} now={now} onOpen={openAt} />
         <TimersSection
           timers={timers}
           pinnedChannels={pinnedChannels}
           now={now}
-          onOpen={setOpenMap}
+          onOpen={openAt}
         />
         <RouteSection
           timers={timers}
           pinnedChannels={pinnedChannels}
           now={now}
-          onOpen={setOpenMap}
+          onOpen={openAt}
         />
         <RankingSection refreshKey={rankKey} />
       </main>
 
       {openMap && (
         <MapDialog
-          map={openMap}
-          timers={timers[openMap.slug] ?? []}
+          map={openMap.map}
+          initialChannel={openMap.channel}
+          timers={timers[openMap.map.slug] ?? []}
           pins={payload?.pins ?? []}
           now={now}
           onClose={() => setOpenMap(null)}

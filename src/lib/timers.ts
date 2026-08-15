@@ -79,6 +79,26 @@ export type ChannelTimer = {
  */
 const SURVIVAL_TAU_MS = 20 * 60 * 1000;
 
+/**
+ * Where in the 30-minute window the odds of walking in on a live boss peak,
+ * as a fraction of the window — 0.5 is fifteen minutes in.
+ *
+ * This is a community-calibrated curve, not a derived probability, and the
+ * difference matters. A textbook model (spawn uniformly distributed across the
+ * window, killed off at some rate) can only ever rise until the window shuts,
+ * because new spawns keep topping the pool up. Players see something else: by
+ * the midpoint most channels have popped, and from there on every extra minute
+ * is another chance somebody already cleared it. The curve below encodes what
+ * the players observe.
+ */
+const WINDOW_PEAK_FRACTION = 0.5;
+
+/** Odds at the peak. Never 100% — the report itself might be wrong. */
+const PEAK_CHANCE = 0.9;
+
+/** How fast the odds fall away once past the peak. */
+const DECAY_TAU_MS = 18 * 60 * 1000;
+
 /** Where the window opens along the progress bar — 60/90 of the way. */
 export const WINDOW_OPEN_FRACTION = RESPAWN_MIN_MS / RESPAWN_MAX_MS;
 
@@ -92,20 +112,27 @@ function spawnChanceAt(opensAt: number, closesAt: number, at: number): number {
 }
 
 /**
- * Odds the boss is alive at `at`: the uniform spawn density integrated against
- * exponential survival. Closed form, so it is cheap enough to call per map per
- * tick.
+ * Odds of finding the boss standing there at `at`. Climbs from nothing when the
+ * window opens to `PEAK_CHANCE` at the peak, then decays: past that point the
+ * boss has almost certainly spawned, so the only thing still changing is
+ * whether someone else got to it first.
  */
 function aliveChanceAt(opensAt: number, closesAt: number, at: number): number {
   const w = closesAt - opensAt;
   if (w <= 0) return 0;
   if (at <= opensAt) return 0;
 
-  const tau = SURVIVAL_TAU_MS;
-  const upper = Math.min(at, closesAt);
-  const integral =
-    (tau / w) * (Math.exp(-(at - upper) / tau) - Math.exp(-(at - opensAt) / tau));
-  return clamp01(integral);
+  const peakAt = opensAt + w * WINDOW_PEAK_FRACTION;
+  if (at <= peakAt) {
+    return clamp01(PEAK_CHANCE * ((at - opensAt) / (peakAt - opensAt)));
+  }
+  return clamp01(PEAK_CHANCE * Math.exp(-(at - peakAt) / DECAY_TAU_MS));
+}
+
+/** When this channel is at its most worth visiting. Null without a window. */
+export function peakAt(t: ChannelTimer): number | null {
+  if (t.opensAt === null || t.closesAt === null) return null;
+  return t.opensAt + (t.closesAt - t.opensAt) * WINDOW_PEAK_FRACTION;
 }
 
 /** Decay applied to a boss confirmed up at `seenAt`. */

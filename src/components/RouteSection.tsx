@@ -139,11 +139,6 @@ export function RouteSection({
                             {t("route.closesin")} <Countdown target={stop.closesAt} now={now} />
                           </span>
                         ) : null}
-                        {stop.stateAtArrival !== stop.stateNow && (
-                          <span className="text-[11px] text-muted">
-                            → {t(`route.at.${stop.stateAtArrival}`)}
-                          </span>
-                        )}
                       </span>
 
                       <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-faint">

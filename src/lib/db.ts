@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { RESPAWN_MAX_MS, STALE_AFTER_MS } from "@/data/game";
 
 /**
  * SQLite lives on a mounted volume so the container stays disposable.
@@ -385,6 +386,33 @@ export type PinRow = {
   votes: number;
   nick: string | null;
 };
+
+/**
+ * Drops tombstone marks whose cycle is over.
+ *
+ * A mark is only ever a claim about the cycle it was reported in. Once a
+ * channel's window has closed and nobody said anything, the claim expires and
+ * the next person has to place it again — a stale pin sending people to the
+ * wrong corner of a map is worse than no pin at all.
+ *
+ * Pins are map geometry, shared by every server, so one is only removed when
+ * the channel has gone quiet on *all* of them.
+ */
+export function prunePins(now = Date.now()): number {
+  const cutoff = now - (RESPAWN_MAX_MS + STALE_AFTER_MS);
+  const res = db()
+    .prepare(
+      `DELETE FROM pins
+       WHERE NOT EXISTS (
+         SELECT 1 FROM deaths d
+         WHERE d.map_slug = pins.map_slug
+           AND d.channel  = pins.channel
+           AND d.died_at  > ?
+       )`,
+    )
+    .run(cutoff);
+  return res.changes;
+}
 
 export function listPins(mapSlug?: string): PinRow[] {
   const sql = `SELECT p.id, p.map_slug, p.channel, p.x, p.y, p.votes, u.nick

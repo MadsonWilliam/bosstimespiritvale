@@ -31,28 +31,13 @@ export function Dashboard() {
   const minuteBucket = Math.floor(now / 60_000);
 
   /**
-   * Channels whose tombstone mark still counts. A pin belongs to the cycle it
-   * was reported in: once a channel's timer runs out with nobody updating it,
-   * the mark stops being treated as current and the site asks for it again on
-   * the next kill. The coordinates are kept — only the "confirmed" status
-   * lapses — so nobody's work is thrown away.
+   * Channels with a tombstone mark. Expired marks are deleted server-side when
+   * their cycle ends, so whatever is here is current by construction.
    */
-  const pinnedChannels = useMemo(() => {
-    const live = new Set<string>();
-    for (const [slug, list] of Object.entries(timers)) {
-      for (const timer of list) {
-        if (timer.state !== "stale" && timer.state !== "unknown") {
-          live.add(`${slug}:${timer.channel}`);
-        }
-      }
-    }
-    return new Set(
-      (payload?.pins ?? [])
-        .map((p) => `${p.map_slug}:${p.channel}`)
-        .filter((key) => live.has(key)),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payload, minuteBucket]);
+  const pinnedChannels = useMemo(
+    () => new Set((payload?.pins ?? []).map((p) => `${p.map_slug}:${p.channel}`)),
+    [payload],
+  );
 
   /**
    * Two live counters that mirror the two halves of the respawn cycle:

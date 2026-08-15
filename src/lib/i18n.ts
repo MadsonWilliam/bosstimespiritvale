@@ -151,15 +151,15 @@ const pt: Dict = {
 
   "route.title": "Rota sugerida",
   "route.subtitle":
-    "Ordem com mais chance de achar boss vivo na hora em que você chega — não agora.",
+    "Os melhores alvos agora, em ordem. Faça de cima para baixo.",
   "route.stops": "paradas",
   "route.arrive": "chega",
-  "route.chance": "chance de achar vivo",
+  "route.chance": "chance agora",
   "route.empty":
     "Sem timers suficientes para montar uma rota. Reporte algumas mortes primeiro.",
   "route.check": "ch",
   "route.legend":
-    "Cor pelo estado na sua chegada: âmbar = já na janela de 30 min (prioridade) · azul = ainda nos 60 min garantidos, é o próximo da fila · verde = boss confirmado vivo. Boss morto não entra na rota.",
+    "Âmbar = na janela dos 30 min, é para onde ir (a chance é máxima 15 min após a janela abrir e cai depois) · azul = ainda nos 60 min garantidos, o próximo da fila · verde = boss confirmado vivo. Fica listado até a janela vencer; boss morto sai.",
   "route.at.waiting": "ainda nos 60 min",
   "route.at.window": "na janela dos 30 min",
   "route.at.alive": "vivo",
@@ -345,15 +345,15 @@ const en: Dict = {
 
   "route.title": "Suggested route",
   "route.subtitle":
-    "Ordered by the odds of finding a boss alive when you get there — not right now.",
+    "The best targets right now, in order. Work your way down.",
   "route.stops": "stops",
   "route.arrive": "arrive",
-  "route.chance": "chance it is up",
+  "route.chance": "chance now",
   "route.empty":
     "Not enough timers to build a route. Report a few kills first.",
   "route.check": "ch",
   "route.legend":
-    "Colour is the state on arrival: amber = already in the 30 min window (go first) · blue = still in the guaranteed 60 min, that is your next stop · green = confirmed alive. Dead bosses never make the route.",
+    "Amber = inside the 30 min window, go here (odds peak 15 min after the window opens, then fall) · blue = still in the guaranteed 60 min, your next stop · green = confirmed alive. Stays listed until the window expires; dead bosses drop off.",
   "route.at.waiting": "still in the 60 min",
   "route.at.window": "in the 30 min window",
   "route.at.alive": "alive",

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { latestDeaths, latestSightings, listPins, stats } from "@/lib/db";
+import { latestDeaths, latestSightings, listPins, prunePins, stats } from "@/lib/db";
 import { asServer, BadRequest } from "@/lib/validate";
 import type { DeathReport, Sighting } from "@/lib/timers";
 
@@ -28,6 +28,10 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const server = asServer(url.searchParams.get("server") ?? "SA");
+
+    // Expired tombstone marks are cleared here rather than on a timer: this
+    // endpoint is polled constantly, so it is the cheapest sweep available.
+    prunePins();
 
     const reports: Record<string, ChannelReports> = {};
     const slot = (key: string): ChannelReports =>

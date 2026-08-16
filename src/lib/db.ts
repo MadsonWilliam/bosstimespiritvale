@@ -124,6 +124,28 @@ function migrate(conn: Database.Database) {
     `);
   });
 
+  /*
+   * Community-data reset, driven by an env var instead of a code change.
+   *
+   * Set DATA_RESET_TOKEN to any new value and redeploy: the wipe runs once for
+   * that value and never again, so restarts are safe. Bumping the value later
+   * triggers a fresh one. Nicknames survive on purpose — people would lose the
+   * handle they claimed, and the PIN that protects it, for no reason. Only the
+   * board and the score they earned from it are cleared.
+   */
+  const resetToken = process.env.DATA_RESET_TOKEN?.trim();
+  if (resetToken) {
+    once(conn, `data-reset:${resetToken}`, () => {
+      conn.exec(`
+        DELETE FROM pin_votes;
+        DELETE FROM pins;
+        DELETE FROM sightings;
+        DELETE FROM deaths;
+        UPDATE users SET points = 0, reports = 0;
+      `);
+    });
+  }
+
   // A tombstone sits in exactly one spot per map and channel. Keeping the
   // best-supported row and enforcing it in the schema stops the board filling
   // with rival pins for the same stone.

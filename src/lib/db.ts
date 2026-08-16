@@ -91,10 +91,11 @@ function migrate(conn: Database.Database) {
     CREATE INDEX IF NOT EXISTS sightings_lookup
       ON sightings (server, map_slug, channel, seen_at DESC);
 
-    -- Tombstone locations are map geometry, identical on every server, so pins
-    -- are keyed by map + channel only.
+    -- One tombstone mark per server, map and channel. Each server runs its own
+    -- cycles, so a mark reported on SA says nothing about NA.
     CREATE TABLE IF NOT EXISTS pins (
       id         INTEGER PRIMARY KEY,
+      server     TEXT    NOT NULL DEFAULT 'SA',
       map_slug   TEXT    NOT NULL,
       channel    INTEGER NOT NULL,
       x          REAL    NOT NULL,
@@ -103,7 +104,6 @@ function migrate(conn: Database.Database) {
       user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS pins_lookup ON pins (map_slug, channel, votes DESC);
 
     CREATE TABLE IF NOT EXISTS pin_votes (
       pin_id  INTEGER NOT NULL REFERENCES pins(id) ON DELETE CASCADE,
@@ -138,9 +138,25 @@ function migrate(conn: Database.Database) {
       );
     `);
   });
-  conn.exec(
-    "CREATE UNIQUE INDEX IF NOT EXISTS pins_unique_channel ON pins (map_slug, channel);",
-  );
+
+  // Marks used to be shared across servers. Rows written before that changed
+  // are adopted by SA, the only server with real traffic when it shipped.
+  if (!hasColumn(conn, "pins", "server")) {
+    conn.exec("ALTER TABLE pins ADD COLUMN server TEXT NOT NULL DEFAULT 'SA';");
+  }
+
+  conn.exec(`
+    DROP INDEX IF EXISTS pins_unique_channel;
+    DROP INDEX IF EXISTS pins_lookup;
+    CREATE UNIQUE INDEX IF NOT EXISTS pins_unique_server_channel
+      ON pins (server, map_slug, channel);
+    CREATE INDEX IF NOT EXISTS pins_server_lookup ON pins (server, map_slug, channel);
+  `);
+}
+
+function hasColumn(conn: Database.Database, table: string, column: string): boolean {
+  const cols = conn.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return cols.some((c) => c.name === column);
 }
 
 /* ------------------------------------------------------------------ users */
@@ -379,6 +395,7 @@ export function latestSightings(server: string): SightingRow[] {
 
 export type PinRow = {
   id: number;
+  server: string;
   map_slug: string;
   channel: number;
   x: number;
@@ -388,47 +405,47 @@ export type PinRow = {
 };
 
 /**
- * Drops tombstone marks whose cycle is over.
+ * Drops tombstone marks whose cycle is over, on one server.
  *
  * A mark is only ever a claim about the cycle it was reported in. Once a
  * channel's window has closed and nobody said anything, the claim expires and
  * the next person has to place it again — a stale pin sending people to the
  * wrong corner of a map is worse than no pin at all.
- *
- * Pins are map geometry, shared by every server, so one is only removed when
- * the channel has gone quiet on *all* of them.
  */
-export function prunePins(now = Date.now()): number {
+export function prunePins(server: string, now = Date.now()): number {
   const cutoff = now - (RESPAWN_MAX_MS + STALE_AFTER_MS);
   const res = db()
     .prepare(
       `DELETE FROM pins
-       WHERE NOT EXISTS (
-         SELECT 1 FROM deaths d
-         WHERE d.map_slug = pins.map_slug
-           AND d.channel  = pins.channel
-           AND d.died_at  > ?
-       )`,
+       WHERE server = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM deaths d
+           WHERE d.server   = pins.server
+             AND d.map_slug = pins.map_slug
+             AND d.channel  = pins.channel
+             AND d.died_at  > ?
+         )`,
     )
-    .run(cutoff);
+    .run(server, cutoff);
   return res.changes;
 }
 
-export function listPins(mapSlug?: string): PinRow[] {
-  const sql = `SELECT p.id, p.map_slug, p.channel, p.x, p.y, p.votes, u.nick
+export function listPins(server: string, mapSlug?: string): PinRow[] {
+  const sql = `SELECT p.id, p.server, p.map_slug, p.channel, p.x, p.y, p.votes, u.nick
                FROM pins p LEFT JOIN users u ON u.id = p.user_id
-               ${mapSlug ? "WHERE p.map_slug = ?" : ""}
+               WHERE p.server = ?${mapSlug ? " AND p.map_slug = ?" : ""}
                ORDER BY p.votes DESC, p.created_at ASC`;
   const stmt = db().prepare(sql);
-  return (mapSlug ? stmt.all(mapSlug) : stmt.all()) as PinRow[];
+  return (mapSlug ? stmt.all(server, mapSlug) : stmt.all(server)) as PinRow[];
 }
 
 /**
- * Sets the one tombstone pin for a map + channel, moving it if it already
- * exists. Moving resets the confirmations: the votes belonged to the old spot,
- * not the new one.
+ * Sets the one tombstone pin for a server + map + channel, moving it if it
+ * already exists. Moving resets the confirmations: the votes belonged to the
+ * old spot, not the new one.
  */
 export function upsertPin(input: {
+  server: string;
   mapSlug: string;
   channel: number;
   x: number;
@@ -438,8 +455,8 @@ export function upsertPin(input: {
   const conn = db();
   return conn.transaction(() => {
     const existing = conn
-      .prepare("SELECT id FROM pins WHERE map_slug = ? AND channel = ?")
-      .get(input.mapSlug, input.channel) as { id: number } | undefined;
+      .prepare("SELECT id FROM pins WHERE server = ? AND map_slug = ? AND channel = ?")
+      .get(input.server, input.mapSlug, input.channel) as { id: number } | undefined;
 
     if (existing) {
       conn
@@ -456,10 +473,18 @@ export function upsertPin(input: {
 
     const info = conn
       .prepare(
-        `INSERT INTO pins (map_slug, channel, x, y, votes, user_id, created_at)
-         VALUES (?, ?, ?, ?, 1, ?, ?)`,
+        `INSERT INTO pins (server, map_slug, channel, x, y, votes, user_id, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
       )
-      .run(input.mapSlug, input.channel, input.x, input.y, input.userId, Date.now());
+      .run(
+        input.server,
+        input.mapSlug,
+        input.channel,
+        input.x,
+        input.y,
+        input.userId,
+        Date.now(),
+      );
     const pinId = Number(info.lastInsertRowid);
     if (input.userId) {
       conn
@@ -480,11 +505,11 @@ export function votePin(pinId: number, userId: number): boolean {
   return true;
 }
 
-/** Does this map+channel already have a pin? Drives the "first pin" bonus. */
-export function hasPin(mapSlug: string, channel: number): boolean {
+/** Does this server's map+channel already have a pin? Drives the first-pin bonus. */
+export function hasPin(server: string, mapSlug: string, channel: number): boolean {
   const row = db()
-    .prepare("SELECT 1 AS x FROM pins WHERE map_slug = ? AND channel = ? LIMIT 1")
-    .get(mapSlug, channel);
+    .prepare("SELECT 1 AS x FROM pins WHERE server = ? AND map_slug = ? AND channel = ? LIMIT 1")
+    .get(server, mapSlug, channel);
   return Boolean(row);
 }
 

@@ -84,7 +84,7 @@ export async function POST(req: Request) {
     let awarded = 0;
     const commitPin = () => {
       if (!tombPin) return;
-      const { created } = upsertPin({ mapSlug, channel, ...tombPin, userId: identity.userId });
+      const { created } = upsertPin({ server, mapSlug, channel, ...tombPin, userId: identity.userId });
       if (identity.userId) awarded += created ? POINTS.pin : POINTS.pinConfirm;
     };
 

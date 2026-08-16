@@ -3,15 +3,16 @@ import { awardPoints, listPins, votePin } from "@/lib/db";
 import { BadCredentials, resolveIdentity } from "@/lib/auth";
 import { POINTS } from "@/lib/ranks";
 import { allow, clientKey } from "@/lib/rate-limit";
-import { asMapSlug, BadRequest } from "@/lib/validate";
+import { asMapSlug, asServer, BadRequest } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
+    const server = asServer(url.searchParams.get("server") ?? "SA");
     const slug = url.searchParams.get("map");
-    return NextResponse.json({ pins: listPins(slug ? asMapSlug(slug) : undefined) });
+    return NextResponse.json({ pins: listPins(server, slug ? asMapSlug(slug) : undefined) });
   } catch (err) {
     if (err instanceof BadRequest) {
       return NextResponse.json({ error: err.code }, { status: 400 });

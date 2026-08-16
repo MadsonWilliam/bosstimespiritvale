@@ -31,7 +31,7 @@ export async function GET(req: Request) {
 
     // Expired tombstone marks are cleared here rather than on a timer: this
     // endpoint is polled constantly, so it is the cheapest sweep available.
-    prunePins();
+    prunePins(server);
 
     const reports: Record<string, ChannelReports> = {};
     const slot = (key: string): ChannelReports =>
@@ -58,7 +58,7 @@ export async function GET(req: Request) {
       server,
       now: Date.now(),
       reports,
-      pins: listPins(),
+      pins: listPins(server),
       stats: stats(server),
     };
 
